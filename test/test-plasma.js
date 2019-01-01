@@ -48,8 +48,16 @@ async function mineBlock () {
 }
 
 describe('Plasma', () => {
+  let bytecode
+  let abi
+  let plasmaCt
+
+  before( async () => {
+   [bytecode, abi] = await compileVyper('./contracts/plasmaprime.vy')
+   plasmaCt = new web3.eth.Contract(JSON.parse(abi))
+  })
+
   it('Should compile the vyper contract without errors', async () => {
-    const [bytecode, abi] = await compileVyper('./contracts/plasmaprime.vy')
     log('Bytecode: ', bytecode.slice(0, 300), '...\n ABI: ', abi.slice(0, 300), '...')
     expect(abi).to.exist
     expect(bytecode).to.exist
@@ -63,9 +71,9 @@ describe('Plasma', () => {
     log(bn2)
     // Now try to deploy
     const addr = web3.eth.accounts.wallet[0].address
-    const plasmaCt = new web3.eth.Contract(JSON.parse(abi))
     const plasma = plasmaCt.deploy({ from: addr, data: bytecode })
-    console.log(plasma)
+    // console.log(plasma)
     // const res = await plasma.methods.plasmaMessageHash(addr, addr, 100, 10).send({ from: addr })
   })
+  it('should allow a new deposit and add it to the deposits object')
 })
