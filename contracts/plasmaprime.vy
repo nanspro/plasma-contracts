@@ -1,3 +1,5 @@
+#TODO: always check uints greater than 0
+
 struct Exit:
     owner: address
     plasma_block: uint256
@@ -11,12 +13,17 @@ struct Challenge:
     ongoing: bool
     token_index: uint256
 
+struct depositedRange:
+    end: uint256
+    nextDepositStart: uint256
+
 operator: public(address)
 deposits: public(map(address, wei_value))
-total_deposits: public(wei_value)
-plasma_block_number: public(uint256)
+plasmaBlockNumber: public(uint256)
 last_publish: public(uint256) # ethereum block number of most recent plasma block
 hash_chain: public(map(uint256, bytes32))
+
+depositedRanges: public(map(uint256, depositedRange))
 
 exits: public(map(uint256, Exit))
 challenges: public(map(uint256, Challenge))
@@ -82,41 +89,52 @@ def tx_hash(
 @public
 def __init__():
     self.operator = msg.sender
-    self.total_deposits = 0
-    self.plasma_block_number = 0
+    self.plasmaBlockNumber = 0
     self.exit_nonce = 0
     self.last_publish = 0
     self.challenge_nonce = 0
 
 @public
 @payable
-def deposit() -> uint256:
-    r: uint256 = as_unitless_number(self.total_deposits)
-    self.deposits[msg.sender] += msg.value
-    self.total_deposits += msg.value
-    return r
+def deposit(leftDepositStart: uint256):
+    #todo: type checking for tokentypes
+    leftDeposit: depositedRange = depositedRanges[leftDepositStart]
+    rightDepositStart: uint256 = leafDeposit.nextDepositStart
+    rightDeposit: depositedRange = depositedRanges[rightDepositStart]
+    
+    emptySpace: uint256 = rightDepositStart - leftDeposit.end
+    assert emptySpace <= msg.value
+    if emptySpace == msg.value: # then it filled the whole thing so we gotta make the left deposited a big one and eliminate exitabilty from the right one altogether
+        depositedRanges[leftDepositStart] = rightDeposit.end
+        depositedRanges[rightDepositStart] = depositedRange(end: rightDepositStart, nextDepositStart: rightDepositStart) # first val is the way to prevent exits on the key.  we could never use it to exit because it ends where it starts.  second val prevents accidentally depositing into an already deposited range
+    else:
+        depositedRanges[leftDepositStart] = leftDepositStart + msg.value
 
 @public
 def publish_hash(block_hash: bytes32):
     assert msg.sender == self.operator
     assert block.number >= self.last_publish + PLASMA_BLOCK_INTERVAL
 
-    self.hash_chain[self.plasma_block_number] = block_hash
-    self.plasma_block_number += 1
+    self.hash_chain[self.plasmaBlockNumber] = block_hash
+    self.plasmaBlockNumber += 1
     self.last_publish = block.number
 
 @public
-def submit_exit(bn: uint256, start: uint256, offset: uint256) -> uint256:
-    assert bn < self.plasma_block_number
-    assert offset > 0
-    assert offset <= as_unitless_number(self.total_deposits)
+def beginExit(bn: uint256, start: uint256, offset: end, depositStart: uint256) -> uint256:
+    #todo check doesn't span multiple tokentypes because that would make finalizing exits a hastle (but prob not break any logic...)
+    assert bn < self.plasmaBlockNumber
+
+    depositRange: depositedRange = depositedRanges[depositStart]
+    assert depositStart <= start
+    assert depositRange.end >= end
+
 
     en: uint256 = self.exit_nonce
     self.exits[en].owner = msg.sender
     self.exits[en].plasma_block = bn
     self.exits[en].eth_block = block.number
     self.exits[en].start = start
-    self.exits[en].offset = offset
+    self.exits[en].end = end
     self.exits[en].challenge_count = 0
     self.exit_nonce += 1
     return en
@@ -127,7 +145,6 @@ def finalize_exit(exit_id: uint256):
     assert self.exits[exit_id].challenge_count == 0
 
     send(self.exits[exit_id].owner, as_wei_value(self.exits[exit_id].offset, 'wei'))
-    self.total_deposits -= as_wei_value(self.exits[exit_id].offset, 'wei')
 
 @public
 def challenge_completeness(
