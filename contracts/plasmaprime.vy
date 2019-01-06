@@ -128,9 +128,10 @@ def deposit(leftDepositStart: uint256):
         #TODO fix syntax on this line and uncomment
         #self.depositedRanges[rightDepositStart] = depositedRange(rightDepositStart, rightDepositStart) # first val is the way to prevent exits on the key. we could never use it to exit because it ends where it starts. second val prevents accidentally depositing into an already deposited range
     else:
-        self.depositedRanges[leftDepositStart].end = leftDepositStart + depositAmount
+        self.depositedRanges[leftDepositStart].end = leftDeposit.end + depositAmount
 
 @private
+@constant
 def checkRangeIsExitable(start: uint256, end: uint256, depositStart: uint256):
     #todo check start/end do not exceed bounds and are well-ordered
     assert depositStart <= start
@@ -154,7 +155,7 @@ def beginExit(bn: uint256, start: uint256, end: uint256, depositStart: uint256) 
     return en
 
 @public
-def finalizeExit(exitId: uint256, precedingDepositStart: uint256) -> uint256: #slightly counterintuitive but we get the deposit slot BEFORE the affected deposit start -- in case we need to update its nextStart reference
+def finalizeExit(exitId: uint256, precedingDepositStart: uint256): #slightly counterintuitive but we get the deposit slot BEFORE the affected deposit start -- in case we need to update its nextStart reference
     assert block.number >= self.exits[exitId].ethBlock + CHALLENGE_PERIOD
     assert self.exits[exitId].challengeCount == 0
 
@@ -164,25 +165,15 @@ def finalizeExit(exitId: uint256, precedingDepositStart: uint256) -> uint256: #s
 
     #oldRange is the deposit range we are exiting from, pre-finalization
     oldRangeStart: uint256 = self.depositedRanges[precedingDepositStart].nextDepositStart
+    oldRange: depositedRange = self.depositedRanges[oldRangeStart]
 
     self.checkRangeIsExitable(exitStart, exitEnd, oldRangeStart) # check again in case an earlier exit was finalized
 
-    oldRange: depositedRange = self.depositedRanges[oldRangeStart]
-
     # to the right of our exit is a new depositrange, starting at the exit's end, pointing to the original nextDeposit, and ending at the original depositRange end (this might make its start == end if the exit is right-aligned, but that's fine -- it would never pass a checkRangeIsExitable())
-    
-
-    self.depositedRanges[exitEnd].end = 13
-    self.depositedRanges[exitEnd].nextDepositStart = 14
-
-    return exitEnd
-
-    #self.depositedRanges[exitEnd].end = oldRange.end, 
-    #self.depositedRanges[exitEnd].nextDepositStart = oldRange.nextDepositStart
-
+    self.depositedRanges[exitEnd].end = oldRange.end
+    self.depositedRanges[exitEnd].nextDepositStart = oldRange.nextDepositStart
 
     # to the left of our exit is the old depositrange, but now we give it this a new end positiion of the exit's start.
-        
     self.depositedRanges[oldRangeStart].end = exitStart
 
     if oldRange.end == exitEnd: #if the exit *was* right-aligned (and therefore the depositRange from the prev line is "empty"--see above)...
@@ -194,6 +185,7 @@ def finalizeExit(exitId: uint256, precedingDepositStart: uint256) -> uint256: #s
         self.depositedRanges[precedingDepositStart].nextDepositStart = self.depositedRanges[oldRangeStart].nextDepositStart # then the preceding range must point to whatever the we decided the affectedDeposit points to in the above if statement.
 
     send(self.exits[exitId].owner, as_wei_value(exitEnd - exitStart, 'wei'))
+
 
 @public
 def challenge_completeness(

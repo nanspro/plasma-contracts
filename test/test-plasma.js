@@ -127,19 +127,16 @@ describe('Plasma', () => {
     expect(web3).to.exist
     expect(ganache).to.exist
   })
-  const emptyBlockHash = '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  const dummyBlockHash = '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
   it('should allow a block to be published by the operator', async () => {
     await mineNBlocks(10) // blocktime is 10
-    await plasma.methods.submitBlock(emptyBlockHash).send({value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000}, async function (error, result){ //get callback from function which is your transaction key
-      if(!error){
+    await plasma.methods.submitBlock(dummyBlockHash).send({value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000}, async function (error, result){ //get callback from function which is your transaction key
+      if (!error) {
         // const receipt = await web3.eth.getTransactionReceipt(result)
       } else{
-        assert.equal(true, false) // theres a better way but fuckit, need to fail tests when things don't pass
+        assert.equal(true, false) // theres a better way but need to fail tests when things throw
         console.log(error)
       }
-    }).then(async () => {
-      // depositEnd = await plasma.methods.depositedRanges__end(0).call()
-      // depositNextStart = await plasma.methods.depositedRanges__nextDepositStart(0).call()
     }).catch((error) => {console.log('send callback failed: ', error)})
   })
   let bigDepositSnapshot
@@ -147,10 +144,8 @@ describe('Plasma', () => {
     let depositEnd, depositNextStart
     const depositSize = 50
     await plasma.methods.deposit(0).send({value: depositSize, from: web3.eth.accounts.wallet[1].address, gas: 4000000}, async function (error, result){ //get callback from function which is your transaction key
-      if(!error){
-        // let receipt = await web3.eth.getTransactionReceipt(result)
-      } else{
-        assert.equal(true, false) // theres a better way but fuckit, need to fail tests when things don't pass
+      if (error) {
+        assert.equal(true, false) // theres a better way but need to fail tests when things throw
         console.log(error)
       }
     }).catch((error) => {console.log('send callback failed: ', error)})
@@ -161,48 +156,44 @@ describe('Plasma', () => {
     bigDepositSnapshot = getCurrentChainSnapshot()
   })
   it('should allow left, right, and un-aligned exits if unchallenged', async () => {
-    // await mineNBlocks(10)
-    // //mine a new plasma block so we can exit
-    // await plasma.methods.submitBlock(emptyBlockHash).send({value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000}, async function (error, result){ //get callback from function which is your transaction key
-    //   if(!error){
-    //   } else{
-    //     assert.equal(true, false) // theres a better way but fuckit, need to fail tests when things don't pass
-    //   }
-    // }).then(async () => {}).catch((error) => {console.log('send callback failed: ', error)})
-
     await plasma.methods.beginExit(1, 0, 10, 0).send({value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
     await plasma.methods.beginExit(1, 20, 30, 0).send({value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
     await plasma.methods.beginExit(1, 40, 50, 0).send({value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
+    
     await mineNBlocks(20)
 
-    await plasma.methods.finalizeExit(0, '0x' + IMAGINARY_PRECEDING.toString(16)).call({value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000}, async function (error, result){
-      let receipt = await web3.eth.getTransactionReceipt(result)
-      let bn = await web3.eth.getBlockNumber()
-      // receipt + error + bn
-    })
-    await plasma.methods.finalizeExit(1, 10).send({value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
-    let lol = await plasma.methods.finalizeExit(2, 30).call({value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000}, async function (error, result){
-      let receipt = await web3.eth.getTransactionReceipt(result)
-      let bn = await web3.eth.getBlockNumber()
-      // receipt + error + bn
-    })
-    const firstDepositEnd = await plasma.methods.depositedRanges__end(50).call()
-    debugger
-    lol+2
+    await plasma.methods.finalizeExit(0, '0x' + IMAGINARY_PRECEDING.toString(16)).send({value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
+    await plasma.methods.finalizeExit(1, 0).send({value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
+    await plasma.methods.finalizeExit(2, 10).send({value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
 
-    // const firstDepositEnd = await plasma.methods.depositedRanges__end(0).call()
+    const imaginaryNext = await plasma.methods.depositedRanges__nextDepositStart('0x' + IMAGINARY_PRECEDING.toString(16)).call()
+    const firstDepositEnd = await plasma.methods.depositedRanges__end(0).call()
     const firstDepositNextStart = await plasma.methods.depositedRanges__nextDepositStart(0).call()
     const middleDepositEnd = await plasma.methods.depositedRanges__end(10).call()
     const middleDepositNextStart = await plasma.methods.depositedRanges__nextDepositStart(10).call()
     const lastDepositEnd = await plasma.methods.depositedRanges__end(30).call()
     const lastDepositNextStart = await plasma.methods.depositedRanges__nextDepositStart(30).call()
-    debugger
 
-    firstDepositEnd + firstDepositNextStart + middleDepositEnd + middleDepositNextStart + lastDepositEnd + lastDepositNextStart
-    assert.deepEqual(new BN(depositEnd), new BN(depositSize))
-    assert.deepEqual(new BN(depositNextStart), MAX_END)
-    bigDepositSnapshot = getCurrentChainSnapshot()
-    depositEnd = await plasma.methods.depositedRanges__end(0).call()
-    depositNextStart = await plasma.methods.depositedRanges__nextDepositStart(0).call()
+    assert.equal(imaginaryNext, "0")
+    assert.equal(firstDepositEnd, "0")
+    assert.equal(firstDepositNextStart, "10")
+    assert.equal(middleDepositEnd, "20")
+    assert.equal(middleDepositNextStart, "30")
+    assert.equal(lastDepositEnd, "40")
+    assert.equal(lastDepositNextStart, MAX_END.toString())
+  })
+  it('should allow re-deposits into exited ranges', async () => {
+    await plasma.methods.deposit(0).send({value: 5, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
+    await plasma.methods.deposit(10).send({value: 10, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
+    await plasma.methods.deposit(10).send({value: 5, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
+
+    const firstRangeEnd = await plasma.methods.depositedRanges__end(0).call()
+    const firstRangeNext = await plasma.methods.depositedRanges__nextDepositStart(0).call()
+    const middleRangeEnd = await plasma.methods.depositedRanges__end(10).call()
+    const middleRangeNext = await plasma.methods.depositedRanges__nextDepositStart(10).call()
+    assert.equal(firstRangeEnd, "5")
+    assert.equal(firstRangeNext, "10")
+    assert.equal(middleRangeEnd, "45")
+    assert.equal(middleRangeNext, "170141183460469231731687303715884105727")  
   })
 })
