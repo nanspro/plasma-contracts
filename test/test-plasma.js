@@ -11,6 +11,10 @@ const chai = require('chai')
 const expect = chai.expect
 const assert = chai.assert
 
+const plasmaUtils = require('plasma-utils')
+const PlasmaMerkleSumTree = plasmaUtils.PlasmaMerkleSumTree
+const Transaction = plasmaUtils.serialization.models.Transaction
+
 const MAX_END = new BN('170141183460469231731687303715884105727', 10) // this is not the right max end for 16 bytes, but we're gonna leave it for now as vyper has a weird bug only supporting uint128 vals
 const IMAGINARY_PRECEDING = MAX_END.add(new BN(1))
 
@@ -196,4 +200,50 @@ describe('Plasma', () => {
     assert.equal(middleRangeEnd, "45")
     assert.equal(middleRangeNext, "170141183460469231731687303715884105727")  
   })
+  it('should well-decode transactions and verify their proofs', async () => {
+    const txs = getSequentialTxs(32)
+    const tree = new PlasmaMerkleSumTree(txs)
+    const index = Math.floor(Math.random() * 32)
+    let proof = tree.getInclusionProof(index)
+    const parsedSum = proof[0].sum
+    proof.shift()
+    let proofString = '0x'
+    proof.forEach((element) => { proofString = proofString + element.hash + element.sum.toString(16, 32) })
+    const shouldBeRoot = await plasma.methods.checkProof(
+      web3.utils.soliditySha3('0x' + tree.leaves[index].encoded),
+      '0x' + parsedSum.toString(16, 32),
+      index,
+      proofString
+    ).call()
+    debugger
+  })
 })
+
+/**
+ * Returns a list of `n` sequential transactions.
+ * @param {*} n Number of sequential transactions to return.
+ * @return {*} A list of sequential transactions.
+ */
+const getSequentialTxs = (n) => {
+  let txs = []
+
+  for (let i = 0; i < n; i++) {
+    txs[i] = new Transaction({
+      transfer: {
+        sender: '0x0000000000000000000000000000000000000000',
+        recipient: '0x0000000000000000000000000000000000000000',
+        token: 0,
+        start: i * 10,
+        end: (i + 1) * 10,
+        block: 0
+      },
+      signature: {
+        v: 0,
+        r: 0,
+        s: 0
+      }
+    })
+  }
+
+  return txs
+}

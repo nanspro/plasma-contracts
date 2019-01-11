@@ -9,9 +9,9 @@ struct Exit:
     challengeCount: uint256
 
 struct Challenge:
-    exitId: uint256
+    exitID: uint256
     ongoing: bool
-    token_index: uint256
+    coinID: uint256
 
 struct depositedRange:
     end: uint256
@@ -37,6 +37,7 @@ PLASMA_BLOCK_INTERVAL: constant(uint256) = 10
 #
 MAX_TREE_DEPTH: constant(uint256) = 8
 MAX_END: constant(uint256) = 170141183460469231731687303715884105727
+MERKLE_NODE_BYTES: constant(int128) = 48
 
 # @public
 # def ecrecover_util(message_hash: bytes32, signature: bytes[65]) -> address:
@@ -155,12 +156,12 @@ def beginExit(bn: uint256, start: uint256, end: uint256, depositStart: uint256) 
     return en
 
 @public
-def finalizeExit(exitId: uint256, precedingDepositStart: uint256): #slightly counterintuitive but we get the deposit slot BEFORE the affected deposit start -- in case we need to update its nextStart reference
-    assert block.number >= self.exits[exitId].ethBlock + CHALLENGE_PERIOD
-    assert self.exits[exitId].challengeCount == 0
+def finalizeExit(exitID: uint256, precedingDepositStart: uint256): #slightly counterintuitive but we get the deposit slot BEFORE the affected deposit start -- in case we need to update its nextStart reference
+    assert block.number >= self.exits[exitID].ethBlock + CHALLENGE_PERIOD
+    assert self.exits[exitID].challengeCount == 0
 
-    exitStart: uint256 = self.exits[exitId].start
-    exitEnd: uint256 = self.exits[exitId].end
+    exitStart: uint256 = self.exits[exitID].start
+    exitEnd: uint256 = self.exits[exitID].end
 
 
     #oldRange is the deposit range we are exiting from, pre-finalization
@@ -184,27 +185,27 @@ def finalizeExit(exitId: uint256, precedingDepositStart: uint256): #slightly cou
     if oldRangeStart == exitStart and precedingDepositStart != MAX_END + 1: #similarly, if the exit was left-aligned (note: might have been both!) ...
         self.depositedRanges[precedingDepositStart].nextDepositStart = self.depositedRanges[oldRangeStart].nextDepositStart # then the preceding range must point to whatever the we decided the affectedDeposit points to in the above if statement.
 
-    send(self.exits[exitId].owner, as_wei_value(exitEnd - exitStart, 'wei'))
+    send(self.exits[exitID].owner, as_wei_value(exitEnd - exitStart, 'wei'))
 
 
 @public
 def challenge_completeness(
-        exitId: uint256,
-        token_index: uint256,
+        exitID: uint256,
+        coinID: uint256,
 ) -> uint256:
     # check the exit being challenged exists
-    assert exitId < self.exit_nonce
+    assert exitID < self.exit_nonce
 
     # check the token index being challenged is in the range being exited
-    assert token_index >= self.exits[exitId].start
-    assert token_index < self.exits[exitId].end
+    assert coinID >= self.exits[exitID].start
+    assert coinID < self.exits[exitID].end
 
     # store challenge
     cn: uint256 = self.challenge_nonce
-    self.challenges[cn].exitId = exitId
+    self.challenges[cn].exitID = exitID
     self.challenges[cn].ongoing = True
-    self.challenges[cn].token_index = token_index
-    self.exits[exitId].challengeCount += 1
+    self.challenges[cn].coinID = coinID
+    self.exits[exitID].challengeCount += 1
 
     self.challenge_nonce += 1
     return cn
@@ -223,10 +224,10 @@ def respond_completeness(
 ):
     assert self.challenges[challenge_id].ongoing == True
 
-    exitId: uint256 = self.challenges[challenge_id].exitId
-    exit_owner: address = self.exits[exitId].owner
-    exit_plasmaBlock: uint256 = self.exits[exitId].plasmaBlock
-    challenged_index: uint256 = self.challenges[challenge_id].token_index
+    exitID: uint256 = self.challenges[challenge_id].exitID
+    exit_owner: address = self.exits[exitID].owner
+    exit_plasmaBlock: uint256 = self.exits[exitID].plasmaBlock
+    challenged_index: uint256 = self.challenges[challenge_id].coinID
 
     # compute message hash
     message_hash: bytes32 = self.plasma_message_hash(sender, recipient, start, offset)
@@ -260,4 +261,41 @@ def respond_completeness(
 
     # response was successful
     self.challenges[challenge_id].ongoing = False
-    self.exits[exitId].challengeCount -= 1
+    self.exits[exitID].challengeCount -= 1
+
+@public
+def checkProof(
+    leafHash: bytes32, 
+    parsedSum: bytes[16], 
+    leafIndex: int128, 
+    proof: bytes[384] # 384 = MAX_TREE_DEPTH (8) * MERKLE_NODE_NYTES (48)
+) -> bytes[48]:
+    computedNode: bytes[48] = concat(leafHash, parsedSum)
+    totalSum: uint256 = convert(parsedSum, uint256)
+    leftSum: uint256 = 0
+    rightSum: uint256 = 0
+    pathIndex: int128 = leafIndex
+    for nodeIndex in range(MAX_TREE_DEPTH):
+        if nodeIndex * 48 == len(proof):
+            break
+        proofNode: bytes[48] = slice(
+            proof, 
+            start = nodeIndex * MERKLE_NODE_BYTES, 
+            len = MERKLE_NODE_BYTES
+        )
+        hashed: bytes32
+        if pathIndex % 2 == 0:
+            hashed = sha3(concat(computedNode, proofNode))
+        else:
+            hashed = sha3(concat(proofNode, computedNode))
+        siblingSum: bytes[16] = slice(proofNode, start=32, len=16)
+        totalSum += convert(siblingSum, uint256)
+        totalSumAsBytes: bytes[16] = slice( #This is all a silly trick since vyper won't direct convert numbers to bytes[]
+            concat(convert(0, bytes32), convert(totalSum, bytes32)),
+            start=48,
+            len=16
+        )
+        computedNode = concat(hashed, totalSumAsBytes)
+        pathIndex /= 2
+
+    return computedNode
