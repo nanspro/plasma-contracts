@@ -257,23 +257,7 @@ def checkTXValidityAndGetTransfer(
         address, # transfer.from
         uint256 # transaction plasmaBlockNumber
     )
-
-    transferStarts: bytes[256] # COINID_BYTES * MAX_TRANSFERS
-    transferEnds: bytes[256]
-    transferFroms: bytes[80] # ADDRESS_BYTES (20) * MAX_TRANSFERS
-    transferTos: bytes[80]
-    signatures: bytes[1] # update to R + S + V bytes
-    plasmaBlockNumber: uint256
-    leafHash: bytes32
-    (
-        transferStarts,
-        transferEnds,
-        transferFroms,
-        transferTos,
-        signatures,
-        plasmaBlockNumber,
-        leafHash
-    ) = decodeTransaction(transactionEncoding)
+    leafHash = getLeafHash(transactionEncoding)
 
     requestedTransferStart: uint256 # these will be the ones at the trIndex we are being asked about by the exit game
     requestedTransferEnd: uint256
@@ -296,26 +280,21 @@ def checkTXValidityAndGetTransfer(
             plasmaBlockNumber
         )
 
-        transferStart: uint256 = convert(
-            slice(transferStarts, i * COINID_BYTES, COINID_BYTES), # 16 = COINID_BYTES
-            uint256
-        )
-        transferEnd: uint256 = convert
-            slice(transferEnds, i * COINID_BYTES, COINID_BYTES), # 16 = COINID_BYTES
-            uint256
-        )
+        transferStart: uint256
+        transferEnd: uint256
+        (transferStart, transferEnd) = decodeIthTransferBounds(i, transactionEncoding)
 
         assert implicitStart <= transferStart
         assert transferStart < transferEnd
         assert transferEnd <= implicitEnd
         assert implicitEnd <= MAX_END
 
-        signature: bytes[1] = slice(signatures, i * 1, 1)
-        sender: bytes[20] = slice(transferFroms, i * 20, 20)
+        signature: bytes[1] = decodeIthSignature(i, transactionEncoding)
+        sender: address = decodeIthTransferFrom(i, transactionEncoding)
         # TODO: add signature check here!
 
         if i == transferIndex:
-            requestedTransferTo = slice(transferTos, i * 20, 20)
+            requestedTransferTo = decodeIthTransferTo(i, transactionEncoding)
             requestedTransferFrom = sender
             requestedTransferStart = transferStart
             requestedTransferEnd = transferEnd
