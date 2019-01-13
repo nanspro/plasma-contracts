@@ -51,45 +51,6 @@ TREE_NODE_BYTES: constant(int128) = 48
 #     return addr
 
 @public
-def addr_to_bytes(addr: address) -> bytes[20]:
-    addr_bytes32: bytes[32] = concat(convert(addr, bytes32), "")
-    return slice(addr_bytes32, start=12, len=20)
-
-@public
-def plasma_message_hash(
-        sender: address,
-        recipient: address,
-        start: uint256,
-        offset: uint256,
-) -> bytes32:
-    return sha3(concat(
-        self.addr_to_bytes(sender),
-        self.addr_to_bytes(recipient),
-        convert(start, bytes32),
-        convert(offset, bytes32),
-    ))
-
-@public
-def tx_hash(
-        sender: address,
-        recipient: address,
-        start: uint256,
-        offset: uint256,
-        sig_v: uint256,
-        sig_r: uint256,
-        sig_s: uint256,
-) -> bytes32:
-    return sha3(concat(
-        self.addr_to_bytes(sender),
-        self.addr_to_bytes(recipient),
-        convert(start, bytes32),
-        convert(offset, bytes32),
-        convert(sig_v, bytes32),
-        convert(sig_r, bytes32),
-        convert(sig_s, bytes32),
-    ))
-
-@public
 def __init__():
     self.operator = msg.sender
     self.nextPlasmaBlockNum = 0
@@ -338,7 +299,6 @@ def checkTXValidityAndGetTransfer(
     requestedTransferEnd: uint256
     requestedTransferTo: address
     requestedTransferFrom: address
-
     numTransfers: int128 = len(transactionEncoding) / ENCODING_LENGTH_PER_TRANSFER
     proofSize: int128 = len(proofs) / numTransfers
     for i in range(MAX_TRANSFERS):
@@ -349,8 +309,8 @@ def checkTXValidityAndGetTransfer(
         leafIndex: bytes[1] = slice(leafIndices, start = i * MAX_TREE_DEPTH / 8, len = MAX_TREE_DEPTH / 8) # num bytes is MAX_TREE_DEPTH / 8
         proof: bytes[1536] =  slice(proofs, start = i * proofSize, len = proofSize) # IN PRACTICE, proof will always be much smaller, but type casting in vyper prevents it from compiling at lower vals
 
-        implicitStart: uint256
-        implicitEnd: uint256
+        implicitStart: uint256 = 0
+        implicitEnd: uint256 = 10000
         (implicitStart, implicitEnd) = self.checkBranchAndGetBounds(
             leafHash,
             parsedSum,
@@ -377,7 +337,6 @@ def checkTXValidityAndGetTransfer(
             requestedTransferFrom = sender
             requestedTransferStart = transferStart
             requestedTransferEnd = transferEnd
-
     return (
         requestedTransferTo,
         requestedTransferFrom,
@@ -403,19 +362,19 @@ def respondInclusion(
     transferFrom: address
     bn: uint256
 
-    (
-        transferStart, 
-        transferEnd, 
-        transferTo, 
-        transferFrom,
-        bn
-    ) = self.checkTXValidityAndGetTransfer(
-        transferIndex,
-        transactionEncoding,
-        parsedSums,
-        leafIndices,
-        proofs
-    )
+ #   (
+ #       transferStart, 
+ #       transferEnd, 
+ #       transferTo, 
+ #       transferFrom,
+ #       bn
+ #   ) = self.checkTXValidityAndGetTransfer(
+ #       transferIndex,
+ #       transactionEncoding,
+ #       parsedSums,
+ #       leafIndices,
+ #       proofs
+ #   )
 
     exitID: uint256 = self.inclusionChallenges[challengeID].exitID
     exiter: address = self.exits[exitID].exiter

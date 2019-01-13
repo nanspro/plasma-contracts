@@ -240,7 +240,7 @@ describe('Plasma', () => {
     let proofString = '0x'
     proof.forEach((element) => { proofString = proofString + element.hash + element.sum.toString(16, 32) })
     const possibleImplicitBounds = await plasma.methods.checkBranchAndGetBounds(
-      web3.utils.soliditySha3('0x' + tree.leaves[index].encoded),
+      web3.utils.soliditySha3('0x' + txs[index].encoded),
       '0x' + parsedSum.toString(16, 32),
       index,
       proofString,
@@ -257,16 +257,14 @@ describe('Plasma', () => {
     let proofString = '0x'
     proof.forEach((element) => { proofString = proofString + element.hash + element.sum.toString(16, 32) })
     debugger
-    const possibleImplicitBounds = await plasma.methods.checkTXValidityAndGetTransfer(
+    const returned = await plasma.methods.checkTXValidityAndGetTransfer(
       0,
-      web3.utils.soliditySha3('0x' + tree.leaves[index].encoded),
+      '0x' + txs[index].encoded,
       '0x' + parsedSum.toString(16, 32),
-      '0x' + new BN(index).toString(16, 8),
+      '0x' + new BN(index).toString(16, 2),
       proofString
     ).call()
     debugger
-    assert.equal(possibleImplicitBounds[0], new BN(txs[index].args.transfer.start))
-    assert(new BN(possibleImplicitBounds[1]).gte(new BN(txs[index].args.transfer.end)))
   })
 })
 
@@ -277,12 +275,12 @@ describe('Plasma', () => {
  */
 const getSequentialTxs = (n) => {
   let txs = []
-
+  debugger
   for (let i = 0; i < n; i++) {
     txs[i] = new Transaction({
       transfer: {
         sender: '0x0000000000000000000000000000000000000000',
-        recipient: '0x0000000000000000000000000000000000000000',
+        recipient: web3.eth.accounts.wallet[1].address,
         token: 0,
         start: i * 20,
         end: (i + 0.5) * 20,
