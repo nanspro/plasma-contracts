@@ -105,7 +105,7 @@ describe('Plasma', () => {
     [bytecode, abi] = await compilePlasmaContract()
     const addr = web3.eth.accounts.wallet[0].address
 
-    plasmaCt = new web3.eth.Contract(JSON.parse(abi), addr, {from: addr, gas: 2500000, gasPrice: '300000'})
+    plasmaCt = new web3.eth.Contract(JSON.parse(abi), addr, {from: addr, gas: 3500000, gasPrice: '300000'})
     // const balance = await web3.eth.getBalance(accounts[0].address)
     const bn = await web3.eth.getBlockNumber()
     await mineBlock()
