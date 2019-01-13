@@ -99,13 +99,13 @@ async function revertToChainSnapshot (snapshot) {
 }
 
 describe('Plasma', () => {
-  let bytecode, abi, plasmaCt, plasma, freshContractSnapshot
+  let bytecode, abi, plasmaCt, plasma, freshContractSnapshot, txs, tree
 
   before( async () => {
    [bytecode, abi] = await compileVyper('./contracts/plasmaprime.vy')
    const addr = web3.eth.accounts.wallet[0].address
 
-   plasmaCt = new web3.eth.Contract(JSON.parse(abi), addr, {from: addr, gas: 2500000, gasPrice: '300000'})
+   plasmaCt = new web3.eth.Contract(JSON.parse(abi), addr, {from: addr, gas: 3500000, gasPrice: '300000'})
    // const balance = await web3.eth.getBalance(accounts[0].address)
    const bn = await web3.eth.getBlockNumber()
    await mineBlock()
@@ -121,6 +121,9 @@ describe('Plasma', () => {
   const block = await web3.eth.getBlock('latest')
   const deploymentTransaction = await web3.eth.getTransaction(block.transactions[0])
   freshContractSnapshot = await getCurrentChainSnapshot()
+
+  txs = getSequentialTxs(32)
+  tree = new PlasmaMerkleSumTree(txs)
   })
 
   it('Should compile the vyper contract without errors', async () => {
@@ -160,9 +163,9 @@ describe('Plasma', () => {
     bigDepositSnapshot = getCurrentChainSnapshot()
   })
   it('should allow left, right, and un-aligned exits if unchallenged', async () => {
-    await plasma.methods.beginExit(1, 0, 10, 0).send({value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
-    await plasma.methods.beginExit(1, 20, 30, 0).send({value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
-    await plasma.methods.beginExit(1, 40, 50, 0).send({value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
+    await plasma.methods.beginExit(0, 0, 10, 0).send({value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
+    await plasma.methods.beginExit(0, 20, 30, 0).send({value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
+    await plasma.methods.beginExit(0, 40, 50, 0).send({value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
     
     await mineNBlocks(20)
 
@@ -200,20 +203,56 @@ describe('Plasma', () => {
     assert.equal(middleRangeEnd, "45")
     assert.equal(middleRangeNext, "170141183460469231731687303715884105727")  
   })
+  it('should getLeafHash of an encoded transaction', async () => {
+    const index = Math.floor(Math.random() * 32)
+    const tx = txs[index]
+    const possibleHash = await plasma.methods.getLeafHash('0x' + tx.encoded).call()
+    assert.equal(possibleHash, '0x' + tree.levels[0][index].hash)
+  })
+  it('should decodeBlockNumber from a tx', async () => {
+    //todo make this not 0 to improve testing coverage lol
+    const index = Math.floor(Math.random() * 32)
+    const tx = txs[index]
+    const possibleBN = await plasma.methods.decodeBlockNumber('0x' + tx.encoded).call()
+    assert.equal(possibleBN, new BN(tx.args.transfer.block).toString())
+  })
+  it('should decode transferBounds from a tx', async () => {
+    //todo make this not 0 to improve testing coverage lol
+    const index = Math.floor(Math.random() * 32)
+    const tx = txs[index]
+    const possibleBounds = await plasma.methods.decodeIthTransferBounds(0, '0x' + tx.encoded).call()
+    assert.equal(possibleBounds[0], new BN(tx.args.transfer.start).toString())
+    assert.equal(possibleBounds[1], new BN(tx.args.transfer.end).toString())
+  })
+  it('should decode transferFrom from a tx', async () => {
+    //todo make this not 0 to improve testing coverage lol
+    const index = Math.floor(Math.random() * 32)
+    const tx = txs[index]
+    const possibleFrom = await plasma.methods.decodeIthTransferFrom(0, '0x' + tx.encoded).call()
+    assert.equal(possibleFrom, tx.args.transfer.sender)
+  })
+  it('should decode transferTo from a tx', async () => {
+    //todo make this not 0 to improve testing coverage lol
+    const index = Math.floor(Math.random() * 32)
+    const tx = txs[index]
+    const possibleFrom = await plasma.methods.decodeIthTransferTo(0, '0x' + tx.encoded).call()
+    assert.equal(possibleFrom, tx.args.transfer.recipient)
+  })
   it('should well-decode transactions and verify their proofs', async () => {
-    const txs = getSequentialTxs(32)
-    const tree = new PlasmaMerkleSumTree(txs)
+    debugger
+    await plasma.methods.submitBlock('0x' + tree.root().hash).send({value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000})
     const index = Math.floor(Math.random() * 32)
     let proof = tree.getInclusionProof(index)
     const parsedSum = proof[0].sum
     proof.shift()
     let proofString = '0x'
     proof.forEach((element) => { proofString = proofString + element.hash + element.sum.toString(16, 32) })
-    const shouldBeRoot = await plasma.methods.checkProof(
+    const shouldBeRoot = await plasma.methods.checkBranchAndGetBounds(
       web3.utils.soliditySha3('0x' + tree.leaves[index].encoded),
       '0x' + parsedSum.toString(16, 32),
       index,
-      proofString
+      proofString,
+      1
     ).call()
     debugger
   })

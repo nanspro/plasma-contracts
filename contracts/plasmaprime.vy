@@ -34,7 +34,7 @@ CHALLENGE_PERIOD: constant(uint256) = 20
 # minimum number of ethereum blocks between new plasma blocks
 PLASMA_BLOCK_INTERVAL: constant(uint256) = 10
 #
-MAX_TREE_DEPTH: constant(uint256) = 8
+MAX_TREE_DEPTH: constant(int128) = 8
 MAX_TRANSFERS: constant(uint256) = 4
 MAX_END: constant(uint256) = 170141183460469231731687303715884105727
 TREE_NODE_BYTES: constant(int128) = 48
@@ -101,11 +101,11 @@ def __init__():
     self.depositedRanges[MAX_END+1] = depositedRange({end: MAX_END+1, nextDepositStart: 0}) # this is not really a deposited range (it's beyond then MAX_END bounday) but we need it so we can pass a precedingDeposit to the finalizeExit function.  There, we check if this END+1 was the thing passed and if so we leave it alone
 
 @public
-def submitBlock(block_hash: bytes32):
+def submitBlock(newBlockHash: bytes32):
     assert msg.sender == self.operator
     assert block.number >= self.last_publish + PLASMA_BLOCK_INTERVAL
 
-    self.blockHashes[self.nextPlasmaBlockNum] = block_hash
+    self.blockHashes[self.nextPlasmaBlockNum] = newBlockHash
     self.nextPlasmaBlockNum += 1
     self.last_publish = block.number
 
@@ -164,7 +164,6 @@ def finalizeExit(exitID: uint256, precedingDepositStart: uint256): #slightly cou
     exitStart: uint256 = self.exits[exitID].start
     exitEnd: uint256 = self.exits[exitID].end
 
-
     #oldRange is the deposit range we are exiting from, pre-finalization
     oldRangeStart: uint256 = self.depositedRanges[precedingDepositStart].nextDepositStart
     oldRange: depositedRange = self.depositedRanges[oldRangeStart]
@@ -194,10 +193,6 @@ def challengeInclusion(exitID: uint256) -> uint256:
     # check the exit being challenged exists
     assert exitID < self.exitNonce
 
-    # check the token index being challenged is in the range being exited
-    assert coinID >= self.exits[exitID].start
-    assert coinID < self.exits[exitID].end
-
     # store challenge
     challengeID: uint256 = self.challengeNonce
     self.inclusionChallenges[challengeID].exitID = exitID
@@ -208,129 +203,81 @@ def challengeInclusion(exitID: uint256) -> uint256:
     return challengeID
 
 @public
-def respondInclusion(
-        challengeID: uint256,
-        transferIndex: uint256,
-        transactionEncoding: bytes[100], # this will be MAX_TRANSFERS * (SIG_BYTES + TRANSFER_BYTES) + small constant for encoding blockNumber and numTransfers
-        parsedSums: bytes[64],  #COINID_BYTES * MAX_TRANSFERS (4)
-        proofs: bytes[1536] #TREE_NODE_BYTES (58) * MAX_TREE_DEPTH (8) * MAX_TRANSFERS (4)
+def getLeafHash(transactionEncoding: bytes[165]) -> bytes32:
+    return sha3(transactionEncoding)
+
+TRANSFER_BLOCK_DECODE_POS: constant(int128) = 68
+TRANSFER_BLOCK_DECODE_LEN: constant(int128) = 32
+@public
+def decodeBlockNumber(transactionEncoding: bytes[165]) -> uint256:
+    #this should technically be checking every TR, buuuut we're gonna pull it out of transfers anyway.
+    bn: bytes[32] = slice(transactionEncoding,
+            start = TRANSFER_BLOCK_DECODE_POS,
+            len = TRANSFER_BLOCK_DECODE_LEN)
+    return convert(bn, uint256)
+
+TOTAL_TRANSFER_SIZE: constant(int128) = 100
+TRANSFER_TOKEN_DECODE_POS: constant(int128) = 40
+TRANSFER_TOKEN_DECODE_LEN: constant(int128) = 4
+TRANSFER_START_DECODE_POS: constant(int128) = 44
+TRANSFER_START_DECODE_LEN: constant(int128) = 12
+TRANSFER_END_DECODE_POS: constant(int128) = 56
+TRANSFER_END_DECODE_LEN: constant(int128) = 12
+@public
+def decodeIthTransferBounds(
+    index: int128,
+    transactionEncoding: bytes[165]
+) -> (
+    uint256, # start
+    uint256 # end
 ):
-    assert self.inclusionChallenges[challengeID].ongoing
-
-    checkTXValidityAndGetTransfer(
-        transferIndex,
-        transactionEncoding,
-        parsedSums,
-        proofs
-    )
-
-
-    exitID: uint256 = self.challenges[challengeID].exitID
-    exiter: address = self.exits[exitID].exiter
-    exitPlasmaBlock: uint256 = self.exits[exitID].plasmaBlock
-    
-    
-
-
-    # check transaction is signed correctly
-    addr: address = ecrecover(message_hash, sig_v, sig_r, sig_s)
-    assert addr == sender
-
-    # check exit exiter is indeed recipient
-    assert recipient == exiter
-
-    # response was successful
-    self.challenges[challengeID].ongoing = False
-    self.exits[exitID].challengeCount -= 1
-
-@public #todo make private once tested
-def checkTXValidityAndGetTransfer(
-        transferIndex: uint256,
-        transactionEncoding: bytes[100], # this will be MAX_TRANSFERS * (SIG_BYTES + TRANSFER_BYTES) + small constant for encoding blockNumber and numTransfers
-        parsedSums: bytes[64],  #COINID_BYTES * MAX_TRANSFERS (4)
-        leafIndices: bytes[4], #MAX_TRANSFERS * MAX_TREE_DEPTH / 8
-        proofs: bytes[1536] #TREE_NODE_BYTES (48) * MAX_TREE_DEPTH (8) * MAX_TRANSFERS (4)
-    ) -> (
-        uint256, # transfer.start
-        uint256, # transfer.end
-        address, # transfer.to
-        address, # transfer.from
-        uint256 # transaction plasmaBlockNumber
-    )
-    leafHash = getLeafHash(transactionEncoding)
-
-    requestedTransferStart: uint256 # these will be the ones at the trIndex we are being asked about by the exit game
-    requestedTransferEnd: uint256
-    requestedTransferTo: bytes[20]
-    requestedTransferFrom: bytes[20]
-
-    for i in range(MAX_TRANSFERS):
-        if i * COINID_BYTES == len(transferStarts): #loop for max possible transfers, but break so we don't go past
-            break
-
-        parsedSum: bytes[16] = slice(parsedSums, i * COINID_BYTES, COINID_BYTES) # COINID_BYTES = 16
-        leafIndex: bytes[1] = slice(leafIndices, i * MAX_TREE_DEPTH / 8, MAX_TREE_DEPTH / 8) # num bytes is MAX_TREE_DEPTH / 8
-        proof: bytes[384] =  # 384 = TREE_NODE_BYTES (48) * MAX_TREE_DEPTH (8) 
-
-        (implicitStart: uint256, implicitEnd: uint256) = checkBranchAndGetBounds(
-            leafHash,
-            parsedSum,
-            convert(leafIndex, int128),
-            proof,
-            plasmaBlockNumber
-        )
-
-        transferStart: uint256
-        transferEnd: uint256
-        (transferStart, transferEnd) = decodeIthTransferBounds(i, transactionEncoding)
-
-        assert implicitStart <= transferStart
-        assert transferStart < transferEnd
-        assert transferEnd <= implicitEnd
-        assert implicitEnd <= MAX_END
-
-        signature: bytes[1] = decodeIthSignature(i, transactionEncoding)
-        sender: address = decodeIthTransferFrom(i, transactionEncoding)
-        # TODO: add signature check here!
-
-        if i == transferIndex:
-            requestedTransferTo = decodeIthTransferTo(i, transactionEncoding)
-            requestedTransferFrom = sender
-            requestedTransferStart = transferStart
-            requestedTransferEnd = transferEnd
-
+    token: bytes[4] = slice(transactionEncoding, 
+        start = index * TOTAL_TRANSFER_SIZE + TRANSFER_TOKEN_DECODE_POS,
+        len = TRANSFER_TOKEN_DECODE_LEN)
+    start: bytes[12] = slice(transactionEncoding,
+        start = index * TOTAL_TRANSFER_SIZE + TRANSFER_START_DECODE_POS,
+        len = TRANSFER_START_DECODE_LEN)
+    end: bytes[12] = slice(transactionEncoding,
+        start = index * TOTAL_TRANSFER_SIZE + TRANSFER_END_DECODE_POS,
+        len = TRANSFER_END_DECODE_LEN)
     return (
-        requestedTransferTo,
-        requestedTransferFrom,
-        requestedTransferStart,
-        requestedTransferEnd,
-        plasmaBlockNumber
+        convert(concat(token, start), uint256),
+        convert(concat(token, end), uint256)
     )
 
+TRANSFER_FROM_DECODE_POS: constant(int128) = 0
+TRANSFER_FROM_DECODE_LEN: constant(int128) = 20
+@public
+def decodeIthTransferFrom(
+    index: int128,
+    transactionEncoding: bytes[165]
+) -> address:
+    addr: bytes[20] = slice(transactionEncoding,
+    start = index * TOTAL_TRANSFER_SIZE + TRANSFER_FROM_DECODE_POS,
+    len = TRANSFER_FROM_DECODE_LEN)
+    addrAsB32: bytes32 = convert(addr, bytes32)
+    return convert(addrAsB32, address)
 
-        
+TRANSFER_TO_DECODE_POS: constant(int128) = 20
+TRANSFER_TO_DECODE_LEN: constant(int128) = 20
+@public
+def decodeIthTransferTo(
+    index: int128,
+    transactionEncoding: bytes[165]
+) -> address:
+    addr: bytes[20] = slice(transactionEncoding,
+        start = index * TOTAL_TRANSFER_SIZE + TRANSFER_TO_DECODE_POS,
+        len = TRANSFER_TO_DECODE_LEN)
+    addrAsB32: bytes32 = convert(addr, bytes32)
+    return convert(addrAsB32, address)
 
-
-@public #todo make private once tested
-def decodeTransaction( # this decodes the signed transaction and also (should this be split out?) check signatures
-        transactionEncoding: bytes[100]
-    ) -> (
-        bytes[256], # starts: COINID_BYTES * MAX_TRANSFERS
-        bytes[256], # ends
-        bytes[80], # tos: ADDRESS_BYTES (20) * MAX_TRANSFERS
-        bytes[80], # froms
-        bytes[1], # sigs: update to R + S + V bytes
-        uint256, # plasma block number
-        bytes32 # leafHash (whatever's actually meant to 
-    ):
-    return # LOL TODO
-
+MERKLE_NODE_BYTES: constant(int128) = 48
 @public
 def checkBranchAndGetBounds(
     leafHash: bytes32, 
     parsedSum: bytes[16], 
     leafIndex: int128, # which leaf in the merkle sum tree this branch is
-    proof: bytes[384], # 384 = MAX_TREE_DEPTH (8) * MERKLE_NODE_BYTES (48)
+    proof: bytes[1536], # will always really be at most 384 = MAX_TREE_DEPTH (8) * MERKLE_NODE_BYTES (48).  but because of dumb type casting in vyper, it thinks it *might* be larger because we have a variable slice.
     bn: uint256 # plasma block number
 ) -> (uint256, uint256):
     computedNode: bytes[48] = concat(leafHash, parsedSum)
@@ -366,3 +313,117 @@ def checkBranchAndGetBounds(
     rootSum: uint256 = convert(slice(computedNode, start=32, len=16), uint256)
     assert convert(rootHash, bytes32) == self.blockHashes[bn]
     return (leftSum, rootSum - rightSum)
+
+COINID_BYTES: constant(int128) = 16
+PROOF_MAX_LENGTH: constant(uint256) = 384 # 384 = TREE_NODE_BYTES (48) * MAX_TREE_DEPTH (8) 
+ENCODING_LENGTH_PER_TRANSFER: constant(int128) = 165
+@public #todo make private once tested
+def checkTXValidityAndGetTransfer(
+        transferIndex: int128,
+        transactionEncoding: bytes[165], # this will eventually be MAX_TRANSFERS * (SIG_BYTES + TRANSFER_BYTES) + small constant for encoding blockNumber and numTransfers
+        parsedSums: bytes[64],  #COINID_BYTES * MAX_TRANSFERS (4)
+        leafIndices: bytes[4], #MAX_TRANSFERS * MAX_TREE_DEPTH / 8
+        proofs: bytes[1536] #TREE_NODE_BYTES (48) * MAX_TREE_DEPTH (8) * MAX_TRANSFERS (4)
+    ) -> (
+        uint256, # transfer.start
+        uint256, # transfer.end
+        address, # transfer.to
+        address, # transfer.from
+        uint256 # transaction plasmaBlockNumber
+    ):
+    leafHash: bytes32 = self.getLeafHash(transactionEncoding)
+    plasmaBlockNumber: uint256 = self.decodeBlockNumber(transactionEncoding)
+
+    requestedTransferStart: uint256 # these will be the ones at the trIndex we are being asked about by the exit game
+    requestedTransferEnd: uint256
+    requestedTransferTo: address
+    requestedTransferFrom: address
+
+    numTransfers: int128 = len(transactionEncoding) / ENCODING_LENGTH_PER_TRANSFER
+    proofSize: int128 = len(proofs) / numTransfers
+    for i in range(MAX_TRANSFERS):
+        if i == numTransfers: #loop for max possible transfers, but break so we don't go past
+            break
+
+        parsedSum: bytes[16] = slice(parsedSums, start = i * COINID_BYTES, len = COINID_BYTES) # COINID_BYTES = 16
+        leafIndex: bytes[1] = slice(leafIndices, start = i * MAX_TREE_DEPTH / 8, len = MAX_TREE_DEPTH / 8) # num bytes is MAX_TREE_DEPTH / 8
+        proof: bytes[1536] =  slice(proofs, start = i * proofSize, len = proofSize) # IN PRACTICE, proof will always be much smaller, but type casting in vyper prevents it from compiling at lower vals
+
+        implicitStart: uint256
+        implicitEnd: uint256
+        (implicitStart, implicitEnd) = self.checkBranchAndGetBounds(
+            leafHash,
+            parsedSum,
+            convert(leafIndex, int128),
+            proof,
+            plasmaBlockNumber
+        )
+
+        transferStart: uint256
+        transferEnd: uint256
+        (transferStart, transferEnd) = self.decodeIthTransferBounds(i, transactionEncoding)
+
+        assert implicitStart <= transferStart
+        assert transferStart < transferEnd
+        assert transferEnd <= implicitEnd
+        assert implicitEnd <= MAX_END
+
+        # signature: bytes[1] = self.decodeIthSignature(i, transactionEncoding)
+        sender: address = self.decodeIthTransferFrom(i, transactionEncoding)
+        # TODO: add signature check here!
+
+        if i == transferIndex:
+            requestedTransferTo = self.decodeIthTransferTo(i, transactionEncoding)
+            requestedTransferFrom = sender
+            requestedTransferStart = transferStart
+            requestedTransferEnd = transferEnd
+
+    return (
+        requestedTransferTo,
+        requestedTransferFrom,
+        requestedTransferStart,
+        requestedTransferEnd,
+        plasmaBlockNumber
+    )
+
+@public
+def respondInclusion(
+        challengeID: uint256,
+        transferIndex: int128,
+        transactionEncoding: bytes[100], # this will be MAX_TRANSFERS * (SIG_BYTES + TRANSFER_BYTES) + small constant for encoding blockNumber and numTransfers
+        parsedSums: bytes[64],  #COINID_BYTES * MAX_TRANSFERS (4)
+        leafIndices: bytes[4], #MAX_TRANSFERS * MAX_TREE_DEPTH / 8
+        proofs: bytes[1536] #TREE_NODE_BYTES (58) * MAX_TREE_DEPTH (8) * MAX_TRANSFERS (4)
+):
+    assert self.inclusionChallenges[challengeID].ongoing
+
+    transferStart: uint256 # these will be the ones at the trIndex we are being asked about by the exit game
+    transferEnd: uint256
+    transferTo: address
+    transferFrom: address
+    bn: uint256
+
+    (
+        transferStart, 
+        transferEnd, 
+        transferTo, 
+        transferFrom,
+        bn
+    ) = self.checkTXValidityAndGetTransfer(
+        transferIndex,
+        transactionEncoding,
+        parsedSums,
+        leafIndices,
+        proofs
+    )
+
+    exitID: uint256 = self.inclusionChallenges[challengeID].exitID
+    exiter: address = self.exits[exitID].exiter
+    exitPlasmaBlock: uint256 = self.exits[exitID].plasmaBlock
+
+    # check exit exiter is indeed recipient
+    assert transferTo == exiter
+
+    # response was successful
+    self.inclusionChallenges[challengeID].ongoing = False
+    self.exits[exitID].challengeCount -= 1
