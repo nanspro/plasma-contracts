@@ -148,21 +148,6 @@ def finalizeExit(exitID: uint256, precedingDepositStart: uint256): #slightly cou
 
     send(self.exits[exitID].exiter, as_wei_value(exitEnd - exitStart, 'wei'))
 
-
-@public
-def challengeInclusion(exitID: uint256) -> uint256:
-    # check the exit being challenged exists
-    assert exitID < self.exitNonce
-
-    # store challenge
-    challengeID: uint256 = self.challengeNonce
-    self.inclusionChallenges[challengeID].exitID = exitID
-    self.inclusionChallenges[challengeID].ongoing = True
-    self.exits[exitID].challengeCount += 1
-
-    self.challengeNonce += 1
-    return challengeID
-
 @public
 def getLeafHash(transactionEncoding: bytes[165]) -> bytes32:
     return sha3(transactionEncoding)
@@ -206,6 +191,11 @@ def decodeIthTransferBounds(
         convert(concat(token, end), uint256)
     )
 
+@private
+def bytes20ToAddress(addr: bytes[20]) -> address:
+    padded: bytes[52] = concat(EMPTY_BYTES32, addr)
+    return convert(convert(slice(padded, start=20, len=32), bytes32), address)
+
 TRANSFER_FROM_DECODE_POS: constant(int128) = 0
 TRANSFER_FROM_DECODE_LEN: constant(int128) = 20
 @public
@@ -214,10 +204,9 @@ def decodeIthTransferFrom(
     transactionEncoding: bytes[165]
 ) -> address:
     addr: bytes[20] = slice(transactionEncoding,
-    start = index * TOTAL_TRANSFER_SIZE + TRANSFER_FROM_DECODE_POS,
-    len = TRANSFER_FROM_DECODE_LEN)
-    addrAsB32: bytes32 = convert(addr, bytes32)
-    return convert(addrAsB32, address)
+        start = 0,# index * TOTAL_TRANSFER_SIZE + TRANSFER_FROM_DECODE_POS,
+        len = 20) #TRANSFER_FROM_DECODE_LEN)
+    return self.bytes20ToAddress(addr)
 
 TRANSFER_TO_DECODE_POS: constant(int128) = 20
 TRANSFER_TO_DECODE_LEN: constant(int128) = 20
@@ -229,8 +218,7 @@ def decodeIthTransferTo(
     addr: bytes[20] = slice(transactionEncoding,
         start = index * TOTAL_TRANSFER_SIZE + TRANSFER_TO_DECODE_POS,
         len = TRANSFER_TO_DECODE_LEN)
-    addrAsB32: bytes32 = convert(addr, bytes32)
-    return convert(addrAsB32, address)
+    return self.bytes20ToAddress(addr)
 
 MERKLE_NODE_BYTES: constant(int128) = 48
 @public
@@ -286,10 +274,10 @@ def checkTXValidityAndGetTransfer(
         leafIndices: bytes[4], #MAX_TRANSFERS * MAX_TREE_DEPTH / 8
         proofs: bytes[1536] #TREE_NODE_BYTES (48) * MAX_TREE_DEPTH (8) * MAX_TRANSFERS (4)
     ) -> (
-        uint256, # transfer.start
-        uint256, # transfer.end
         address, # transfer.to
         address, # transfer.from
+        uint256, # transfer.start
+        uint256, # transfer.end
         uint256 # transaction plasmaBlockNumber
     ):
     leafHash: bytes32 = self.getLeafHash(transactionEncoding)
@@ -344,6 +332,20 @@ def checkTXValidityAndGetTransfer(
         requestedTransferEnd,
         plasmaBlockNumber
     )
+
+@public
+def challengeInclusion(exitID: uint256) -> uint256:
+    # check the exit being challenged exists
+    assert exitID < self.exitNonce
+
+    # store challenge
+    challengeID: uint256 = self.challengeNonce
+    self.inclusionChallenges[challengeID].exitID = exitID
+    self.inclusionChallenges[challengeID].ongoing = True
+    self.exits[exitID].challengeCount += 1
+
+    self.challengeNonce += 1
+    return challengeID
 
 @public
 def respondInclusion(

@@ -225,11 +225,11 @@ describe('Plasma', () => {
     assert.equal(possibleFrom, tx.args.transfer.sender)
   })
   it('should decode transferTo from a tx', async () => {
-    // todo make this not 0 address to improve testing coverage
     const index = Math.floor(Math.random() * 32)
     const tx = txs[index]
-    const possibleFrom = await plasma.methods.decodeIthTransferTo(0, '0x' + tx.encoded).call()
-    assert.equal(possibleFrom, tx.args.transfer.recipient)
+    const encoding = '0x' + tx.encoded
+    const possibleTo = await plasma.methods.decodeIthTransferTo(0, encoding).call()
+    assert.equal(possibleTo, tx.args.transfer.recipient)
   })
   it('should properly check individual branch proofs and get implicit bounds', async () => {
     await plasma.methods.submitBlock('0x' + tree.root().hash).send({ value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000 })
@@ -250,20 +250,42 @@ describe('Plasma', () => {
     assert(new BN(possibleImplicitBounds[1]).gte(new BN(txs[index].args.transfer.end)))
   })
   it('should properly check full tx proofs and get transfer & blocknumber', async () => {
-    const index = Math.floor(Math.random() * 32)
-    let proof = tree.getInclusionProof(index)
-    const parsedSum = proof[0].sum
+    for (let i = 0; i < 100; i++) { let tx, index, proof, parsedSum, proofString; try { 
+     index = Math.floor(Math.random() * 32)
+     tx = txs[index]
+     proof = tree.getInclusionProof(index)
+     parsedSum = proof[0].sum
     proof.shift()
-    let proofString = '0x'
+     proofString = '0x'
     proof.forEach((element) => { proofString = proofString + element.hash + element.sum.toString(16, 32) })
-    debugger
-    const returned = await plasma.methods.checkTXValidityAndGetTransfer(
+    const transfer = await plasma.methods.checkTXValidityAndGetTransfer(
       0,
-      '0x' + txs[index].encoded,
+      '0x' + tx.encoded,
       '0x' + parsedSum.toString(16, 32),
       '0x' + new BN(index).toString(16, 2),
       proofString
     ).call()
+    const returnedTo = transfer[0]
+    const returnedFrom = transfer[1]
+    const returnedStart = transfer[2]
+    const returnedEnd = transfer[3]
+    const expectedTo = tx.args.transfer.recipient
+    const expectedFrom = tx.args.transfer.sender
+    const expectedStart = new BN(tx.args.transfer.start).toString()
+    const expectedEnd = new BN(tx.args.transfer.end).toString()
+    assert.equal(returnedTo, expectedTo)
+    assert.equal(returnedFrom, expectedFrom)
+    assert.equal(returnedStart, expectedStart)
+    assert.equal(returnedEnd, expectedEnd)
+    } catch {debugger}
+  }
+  })
+  it('should allow inclusionChallenges and their response', async () => {
+    const index = Math.floor(Math.random() * 32)
+    const tx = txs[index]
+    const start = new BN(tx.args.transfer.start)
+    const end = new BN(tx.args.transfer.end)
+    const a = await plasma.methods.beginExit(1, start, end, 0).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
     debugger
   })
 })
@@ -275,11 +297,10 @@ describe('Plasma', () => {
  */
 const getSequentialTxs = (n) => {
   let txs = []
-  debugger
   for (let i = 0; i < n; i++) {
     txs[i] = new Transaction({
       transfer: {
-        sender: '0x0000000000000000000000000000000000000000',
+        sender: web3.eth.accounts.wallet[0].address,
         recipient: web3.eth.accounts.wallet[1].address,
         token: 0,
         start: i * 20,
