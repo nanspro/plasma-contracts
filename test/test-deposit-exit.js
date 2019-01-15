@@ -10,13 +10,11 @@ const BN = Web3.utils.BN
 const setup = require('./setup-plasma')
 const web3 = setup.web3
 
+let bytecode, abi, plasma, freshContractSnapshot // eslint-disable-line no-unused-vars
 describe('Deposits and Exits', () => {
-  let bytecode, abi, plasma, freshContractSnapshot // eslint-disable-line no-unused-vars
   setup
   before(async () => {
-    [
-      bytecode, abi, plasma, freshContractSnapshot
-    ] = await setup.setupPlasma()
+    [bytecode, abi, plasma, freshContractSnapshot] = setup.get()
   })
   it('should allow a first deposit and add it to the deposits correctly', async () => {
     let depositEnd, depositNextStart

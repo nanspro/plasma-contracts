@@ -3,6 +3,8 @@ const ganache = require('ganache-cli')
 const Web3 = require('web3')
 const BN = Web3.utils.BN
 
+const Transaction = require('plasma-utils').serialization.models.Transaction
+
 const MAX_END = new BN('170141183460469231731687303715884105727', 10) // this is not the right max end for 16 bytes, but we're gonna leave it for now as vyper has a weird bug only supporting uint128 vals
 const IMAGINARY_PRECEDING = MAX_END.add(new BN(1))
 
@@ -79,27 +81,6 @@ async function revertToChainSnapshot (snapshot) { // eslint-disable-line no-unus
   })
 }
 
-async function setupPlasma () {
-  const [bytecode, abi] = await compilePlasmaContract()
-  const addr = web3.eth.accounts.wallet[0].address
-
-  const plasmaCt = new web3.eth.Contract(JSON.parse(abi), addr, { from: addr, gas: 3500000, gasPrice: '300000' })
-
-  await mineBlock()
-
-  // Now try to deploy
-  const plasma = await plasmaCt.deploy({ data: bytecode }).send() /* {
-        from: addr,
-        gas: 2500000,
-        gasPrice: '300000'
-    })
-    */
-  const block = await web3.eth.getBlock('latest')
-  const deploymentTransaction = await web3.eth.getTransaction(block.transactions[0]) // eslint-disable-line no-unused-vars
-  const freshContractSnapshot = await getCurrentChainSnapshot()
-  return [bytecode, abi, plasma, freshContractSnapshot]
-}
-
 /**
  * Returns a list of `n` sequential transactions.
  * @param {*} n Number of sequential transactions to return.
@@ -127,8 +108,40 @@ const getSequentialTxs = (n) => {
   return txs
 }
 
+let bytecode, abi, plasma, freshContractSnapshot
+
+async function setupPlasma () {
+  [bytecode, abi] = await compilePlasmaContract()
+  const addr = web3.eth.accounts.wallet[0].address
+
+  const plasmaCt = new web3.eth.Contract(JSON.parse(abi), addr, { from: addr, gas: 3500000, gasPrice: '300000' })
+
+  await mineBlock()
+  // Now try to deploy
+  plasma = await plasmaCt.deploy({ data: bytecode }).send() /* {
+        from: addr,
+        gas: 2500000,
+        gasPrice: '300000'
+    })
+    */
+  // const block = await web3.eth.getBlock('latest')
+  // const deploymentTransaction = await web3.eth.getTransaction(block.transactions[0]) // eslint-disable-line no-unused-vars
+  freshContractSnapshot = await getCurrentChainSnapshot()
+  return [bytecode, abi, plasma, freshContractSnapshot]
+}
+
+function get() {
+  return [bytecode, abi, plasma, freshContractSnapshot]
+}
+
+// let trig = true
+// let bytecode, abi, plasma, freshContractSnapshot
+// setupPlasma().then((result) => {
+//   console.log('lelelelelel')
+//   [bytecode, abi, plasma, freshContractSnapshot] = result
+// })
+
 module.exports = {
-  setupPlasma,
   getCurrentChainSnapshot,
   revertToChainSnapshot,
   MAX_END,
@@ -136,5 +149,11 @@ module.exports = {
   web3,
   mineBlock,
   mineNBlocks,
-  getSequentialTxs
+  getSequentialTxs,
+//   bytecode,
+//   abi,
+//   plasma,
+//   freshContractSnapshot
+  setupPlasma,
+  get
 }

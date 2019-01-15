@@ -11,17 +11,17 @@ const plasmaUtils = require('plasma-utils')
 const PlasmaMerkleSumTree = plasmaUtils.PlasmaMerkleSumTree
 const setup = require('./setup-plasma')
 
-describe('Plasma Initialization', () => {
-  let bytecode, abi, plasma, txs, tree, freshContractSnapshot // eslint-disable-line no-unused-vars
+let bytecode, abi, plasma, freshContractSnapshot
+describe('Contract Decoding', () => {
+  let txs, tree // eslint-disable-line no-unused-vars
   before(async () => {
-    [
-      bytecode, abi, plasma, freshContractSnapshot
-    ] = await setup.setupPlasma()
-
+    [bytecode, abi, plasma, freshContractSnapshot] = setup.get()
     txs = setup.getSequentialTxs(32)
     tree = new PlasmaMerkleSumTree(txs)
+    await setup.revertToChainSnapshot(freshContractSnapshot)
   })
   it('should getLeafHash of an encoded transaction', async () => {
+      debugger
     const index = Math.floor(Math.random() * 32)
     const tx = txs[index]
     const possibleHash = await plasma.methods.getLeafHash('0x' + tx.encoded).call()
@@ -54,5 +54,8 @@ describe('Plasma Initialization', () => {
     const encoding = '0x' + tx.encoded
     const possibleTo = await plasma.methods.decodeIthTransferTo(0, encoding).call()
     assert.equal(possibleTo, tx.args.transfer.recipient)
+  })
+  after(async () => {
+    delete bytecode, abi, plasma, txs, tree, freshContractSnapshot
   })
 })
