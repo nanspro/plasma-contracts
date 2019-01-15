@@ -1,4 +1,4 @@
-#TODO: always check uints greater than 0
+#TODO: always check uints greater than 0?
 
 struct Exit:
     exiter: address
