@@ -100,6 +100,33 @@ async function setupPlasma () {
   return [bytecode, abi, plasma, freshContractSnapshot]
 }
 
+/**
+ * Returns a list of `n` sequential transactions.
+ * @param {*} n Number of sequential transactions to return.
+ * @return {*} A list of sequential transactions.
+ */
+const getSequentialTxs = (n) => {
+  let txs = []
+  for (let i = 0; i < n; i++) {
+    txs[i] = new Transaction({
+      transfer: {
+        sender: web3.eth.accounts.wallet[0].address,
+        recipient: web3.eth.accounts.wallet[1].address,
+        token: 0,
+        start: i * 20,
+        end: (i + 0.5) * 20,
+        block: 1
+      },
+      signature: {
+        v: 0,
+        r: 0,
+        s: 0
+      }
+    })
+  }
+  return txs
+}
+
 module.exports = {
   setupPlasma,
   getCurrentChainSnapshot,
@@ -108,5 +135,6 @@ module.exports = {
   IMAGINARY_PRECEDING,
   web3,
   mineBlock,
-  mineNBlocks
+  mineNBlocks,
+  getSequentialTxs
 }
