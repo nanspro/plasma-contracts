@@ -90,19 +90,16 @@ const getSequentialTxs = (n) => {
   let txs = []
   for (let i = 0; i < n; i++) {
     txs[i] = new Transaction({
-      transfer: {
-        sender: web3.eth.accounts.wallet[0].address,
-        recipient: web3.eth.accounts.wallet[1].address,
-        token: 0,
-        start: i * 20,
-        end: (i + 0.5) * 20,
-        block: 1
-      },
-      signature: {
-        v: 0,
-        r: 0,
-        s: 0
-      }
+      block: 1,
+      transfers: [
+        {
+          sender: web3.eth.accounts.wallet[0].address,
+          recipient: web3.eth.accounts.wallet[1].address,
+          token: 0,
+          start: i * 20,
+          end: (i + 0.5) * 20
+        }
+      ]
     })
   }
   return txs
@@ -130,16 +127,9 @@ async function setupPlasma () {
   return [bytecode, abi, plasma, freshContractSnapshot]
 }
 
-function get() {
+function get () {
   return [bytecode, abi, plasma, freshContractSnapshot]
 }
-
-// let trig = true
-// let bytecode, abi, plasma, freshContractSnapshot
-// setupPlasma().then((result) => {
-//   console.log('lelelelelel')
-//   [bytecode, abi, plasma, freshContractSnapshot] = result
-// })
 
 module.exports = {
   getCurrentChainSnapshot,
@@ -150,10 +140,6 @@ module.exports = {
   mineBlock,
   mineNBlocks,
   getSequentialTxs,
-//   bytecode,
-//   abi,
-//   plasma,
-//   freshContractSnapshot
   setupPlasma,
   get
 }

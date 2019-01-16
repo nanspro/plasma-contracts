@@ -12,17 +12,18 @@ struct inclusionChallenge:
     exitID: uint256
     ongoing: bool
 
-struct depositedRange:
-    end: uint256
-    nextDepositStart: uint256
+struct deposit:
+    start: uint256
+    depositer: address
+
+exitable: public(map(uint256, uint256)) # end -> start because it makes for cleaner code
+deposits: public(map(uint256, deposit)) # also end -> start for consistency
+totalDeposited: public(uint256)
 
 operator: public(address)
-deposits: public(map(address, wei_value))
-nextPlasmaBlockNum: public(uint256)
+nextPlasmaBlockNumber: public(uint256)
 last_publish: public(uint256) # ethereum block number of most recent plasma block
 blockHashes: public(map(uint256, bytes32))
-
-depositedRanges: public(map(uint256, depositedRange))
 
 exits: public(map(uint256, Exit))
 inclusionChallenges: public(map(uint256, inclusionChallenge))
@@ -53,172 +54,208 @@ TREE_NODE_BYTES: constant(int128) = 48
 @public
 def __init__():
     self.operator = msg.sender
-    self.nextPlasmaBlockNum = 0
+    self.nextPlasmaBlockNumber = 0
     self.exitNonce = 0
     self.last_publish = 0
     self.challengeNonce = 0
-    self.depositedRanges[0] = depositedRange({end: 0, nextDepositStart: MAX_END})
-    self.depositedRanges[MAX_END] = depositedRange({end:MAX_END, nextDepositStart: MAX_END})
-    self.depositedRanges[MAX_END+1] = depositedRange({end: MAX_END+1, nextDepositStart: 0}) # this is not really a deposited range (it's beyond then MAX_END bounday) but we need it so we can pass a precedingDeposit to the finalizeExit function.  There, we check if this END+1 was the thing passed and if so we leave it alone
-
+    self.totalDeposited = 0
+    self.exitable[0] = 0
+    
 @public
 def submitBlock(newBlockHash: bytes32):
     assert msg.sender == self.operator
     assert block.number >= self.last_publish + PLASMA_BLOCK_INTERVAL
 
-    self.blockHashes[self.nextPlasmaBlockNum] = newBlockHash
-    self.nextPlasmaBlockNum += 1
+    self.blockHashes[self.nextPlasmaBlockNumber] = newBlockHash
+    self.nextPlasmaBlockNumber += 1
     self.last_publish = block.number
 
 @public
 @payable
-def deposit(leftDepositStart: uint256):
-    #todo: type checking for tokentypes
-    assert msg.value > 0
-    leftDeposit: depositedRange = self.depositedRanges[leftDepositStart]
-    rightDepositStart: uint256 = leftDeposit.nextDepositStart
-    rightDeposit: depositedRange = self.depositedRanges[rightDepositStart]
-    
-    assert rightDepositStart > leftDeposit.end # if they did trickery with the last deposit, not sure if the next line auto detects this
-    emptySpaceBetweenDeposits: uint256 = rightDepositStart - leftDeposit.end
-
+def submitDeposit():
     depositAmount: uint256 = as_unitless_number(msg.value)
-    assert depositAmount <=  emptySpaceBetweenDeposits 
-    if emptySpaceBetweenDeposits == depositAmount: # then it filled the whole thing so we gotta make the left deposited a big one and (? see TBD two lines below) eliminate exitabilty from the right one altogether
-        self.depositedRanges[leftDepositStart].end = rightDeposit.end
-        self.depositedRanges[leftDepositStart].nextDepositStart = rightDeposit.nextDepositStart
-        #TBD: is this line actually needed or is it fine to not touch rightDepositStart? I think not
-        #TODO fix syntax on this line and uncomment
-        #self.depositedRanges[rightDepositStart] = depositedRange(rightDepositStart, rightDepositStart) # first val is the way to prevent exits on the key. we could never use it to exit because it ends where it starts. second val prevents accidentally depositing into an already deposited range
-    else:
-        self.depositedRanges[leftDepositStart].end = leftDeposit.end + depositAmount
+    assert depositAmount > 0
 
-@private
-@constant
-def checkRangeIsExitable(start: uint256, end: uint256, depositStart: uint256):
-    #todo check start/end do not exceed bounds and are well-ordered
-    assert depositStart <= start
-    assert self.depositedRanges[depositStart].end >= end
+    oldEnd: uint256 = self.totalDeposited
+    oldStart: uint256 = self.exitable[oldEnd] # remember, map is end -> start!
+
+    self.totalDeposited += depositAmount # add deposit
+    assert self.totalDeposited < MAX_END # make sure we're not at capacity
+    clear(self.exitable[oldEnd]) # delete old exitable range
+    self.exitable[self.totalDeposited] = oldStart #make exitable
+
+    self.deposits[self.totalDeposited].start = oldEnd # the range (oldEnd, newTotalDeposited) was deposited by the depositer
+    self.deposits[self.totalDeposited].depositer = msg.sender
 
 @public
-def beginExit(bn: uint256, start: uint256, end: uint256, depositStart: uint256) -> uint256:
-    #todo check doesn't span multiple tokentypes because that would make finalizing exits a hastle (but prob not break any logic...)
-    assert bn < self.nextPlasmaBlockNum
+def beginExit(bn: uint256, start: uint256, end: uint256) -> uint256:
+    assert bn < self.nextPlasmaBlockNumber
 
-    self.checkRangeIsExitable(start, end, depositStart)
+    exitID: uint256 = self.exitNonce
+    self.exits[exitID].exiter = msg.sender
+    self.exits[exitID].plasmaBlock = bn
+    self.exits[exitID].ethBlock = block.number
+    self.exits[exitID].start = start
+    self.exits[exitID].end = end
+    self.exits[exitID].challengeCount = 0
 
-    en: uint256 = self.exitNonce
-    self.exits[en].exiter = msg.sender
-    self.exits[en].plasmaBlock = bn
-    self.exits[en].ethBlock = block.number
-    self.exits[en].start = start
-    self.exits[en].end = end
-    self.exits[en].challengeCount = 0
     self.exitNonce += 1
-    return en
+    return exitID
 
 @public
-def finalizeExit(exitID: uint256, precedingDepositStart: uint256): #slightly counterintuitive but we get the deposit slot BEFORE the affected deposit start -- in case we need to update its nextStart reference
-    assert block.number >= self.exits[exitID].ethBlock + CHALLENGE_PERIOD
-    assert self.exits[exitID].challengeCount == 0
+def checkRangeExitable(start: uint256, end: uint256, claimedExitableEnd: uint256):
+    assert end <= claimedExitableEnd
+    assert start >= self.exitable[claimedExitableEnd]
 
-    exitStart: uint256 = self.exits[exitID].start
+# this function updates the exitable ranges to reflect a newly finalized exit.
+@public # make private once tested!!!!
+def removeFromExitable(start: uint256, end: uint256, exitableEnd: uint256):
+    oldStart: uint256 = self.exitable[exitableEnd]
+    #todo fix/check  the case with totally filled exit finalization
+    if start != oldStart: # then we have a new exitable region to the left
+        self.exitable[start] = oldStart # new exitable range from oldstart to the start of the exit (which has just become the end of the new exitable range)
+    if end != exitableEnd: # then we have leftovers to the right which are exitable
+        self.exitable[exitableEnd] = end # and it starts at the end of the finalized exit!
+    else: # otherwise, no leftovers on the right, so we can delete the map entry...
+        if end != self.totalDeposited: # ...UNLESS it's the rightmost deposited value, which we need to keep (even though it will be "empty", i.e. have start == end,because submitDeposit() uses it to make the new deposit exitable)
+            clear(self.exitable[end])
+        else: # and if it is the rightmost, 
+            self.exitable[end] = end # start = end but allows for new deposit logic to work
+
+
+@public
+def finalizeExit(exitID: uint256, exitableEnd: uint256) -> uint256:
+    exiter: address = self.exits[exitID].exiter
+    exitEthBlock: uint256 = self.exits[exitID].ethBlock
+    exitStart: uint256  = self.exits[exitID].start
     exitEnd: uint256 = self.exits[exitID].end
+    challengeCount: uint256 = self.exits[exitID].challengeCount
 
-    #oldRange is the deposit range we are exiting from, pre-finalization
-    oldRangeStart: uint256 = self.depositedRanges[precedingDepositStart].nextDepositStart
-    oldRange: depositedRange = self.depositedRanges[oldRangeStart]
+    self.checkRangeExitable(exitStart, exitEnd, exitableEnd)
+    self.removeFromExitable(exitStart, exitEnd, exitableEnd)
 
-    self.checkRangeIsExitable(exitStart, exitEnd, oldRangeStart) # check again in case an earlier exit was finalized
+    assert challengeCount == 0
+    assert block.number > exitEthBlock + CHALLENGE_PERIOD
 
-    # to the right of our exit is a new depositrange, starting at the exit's end, pointing to the original nextDeposit, and ending at the original depositRange end (this might make its start == end if the exit is right-aligned, but that's fine -- it would never pass a checkRangeIsExitable())
-    self.depositedRanges[exitEnd].end = oldRange.end
-    self.depositedRanges[exitEnd].nextDepositStart = oldRange.nextDepositStart
+    exitValue: wei_value = as_wei_value(exitEnd - exitStart, "wei")
+    send(exiter, exitValue)
+    return exitEnd
 
-    # to the left of our exit is the old depositrange, but now we give it this a new end positiion of the exit's start.
-    self.depositedRanges[oldRangeStart].end = exitStart
+### TRANSACTION DECODING SECION ###
 
-    if oldRange.end == exitEnd: #if the exit *was* right-aligned (and therefore the depositRange from the prev line is "empty"--see above)...
-        self.depositedRanges[oldRangeStart].nextDepositStart = oldRange.nextDepositStart # (cont) ...then we need to point to the original nextStart, *not* the empty one, so that an exit can be done on the full range at once
-    else: 
-        self.depositedRanges[oldRangeStart].nextDepositStart =  exitEnd # otherwise it was not and we point to the end of our exit
-    # the AND below is if we're using the "out of range" preceding deposit to point to the oldRange, because in that case we don't wanna merge the ranges.  we could also add a bool input to finalize exit but this is cleaner code-wise
-    if oldRangeStart == exitStart and precedingDepositStart != MAX_END + 1: #similarly, if the exit was left-aligned (note: might have been both!) ...
-        self.depositedRanges[precedingDepositStart].nextDepositStart = self.depositedRanges[oldRangeStart].nextDepositStart # then the preceding range must point to whatever the we decided the affectedDeposit points to in the above if statement.
+# Note: TX Encoding Lengths
+#
+# The MAX_TRANSFERS should be a tunable constant, but vyper doesn't 
+# support 'bytes[constant var]' so it has to be hardcoded.  The formula
+# for calculating the encoding size is:
+#     TX_BLOCK_DECODE_LEN + 
+#     TX_NUM_TRANSFERS_LEN +
+#     MAX_TRANSFERS * TRANSFER_LEN 
+# Currently we take MAX_TRANSFERS = 4, so it's 32 + 1 + 4 * 68 = 305
 
-    send(self.exits[exitID].exiter, as_wei_value(exitEnd - exitStart, 'wei'))
+# Decoding constants used by multiple functions below:
+FIRST_TRANSFER_START: constant(int128) = 33 # 32 Byte block hash + 1 byte numTransfers
+TOTAL_TRANSFER_SIZE: constant(int128) = 68
 
 @public
-def getLeafHash(transactionEncoding: bytes[165]) -> bytes32:
+def getLeafHash(transactionEncoding: bytes[305]) -> bytes32:
     return sha3(transactionEncoding)
 
-TRANSFER_BLOCK_DECODE_POS: constant(int128) = 68
-TRANSFER_BLOCK_DECODE_LEN: constant(int128) = 32
+TX_BLOCKNUM_START: constant(int128) = 0
+TX_BLOCKNUM_LEN: constant(int128) = 32
 @public
-def decodeBlockNumber(transactionEncoding: bytes[165]) -> uint256:
-    #this should technically be checking every TR, buuuut we're gonna pull it out of transfers anyway.
+def decodeBlockNumber(transactionEncoding: bytes[305]) -> uint256:
     bn: bytes[32] = slice(transactionEncoding,
-            start = TRANSFER_BLOCK_DECODE_POS,
-            len = TRANSFER_BLOCK_DECODE_LEN)
+            start = TX_BLOCKNUM_START,
+            len = TX_BLOCKNUM_LEN)
     return convert(bn, uint256)
 
-TOTAL_TRANSFER_SIZE: constant(int128) = 100
-TRANSFER_TOKEN_DECODE_POS: constant(int128) = 40
-TRANSFER_TOKEN_DECODE_LEN: constant(int128) = 4
-TRANSFER_START_DECODE_POS: constant(int128) = 44
-TRANSFER_START_DECODE_LEN: constant(int128) = 12
-TRANSFER_END_DECODE_POS: constant(int128) = 56
-TRANSFER_END_DECODE_LEN: constant(int128) = 12
+TX_NUM_TRANSFERS_START: constant(int128) = 32
+TX_NUM_TRANSFERS_LEN: constant(int128) = 1
 @public
-def decodeIthTransferBounds(
-    index: int128,
-    transactionEncoding: bytes[165]
-) -> (
-    uint256, # start
-    uint256 # end
-):
-    token: bytes[4] = slice(transactionEncoding, 
-        start = index * TOTAL_TRANSFER_SIZE + TRANSFER_TOKEN_DECODE_POS,
-        len = TRANSFER_TOKEN_DECODE_LEN)
-    start: bytes[12] = slice(transactionEncoding,
-        start = index * TOTAL_TRANSFER_SIZE + TRANSFER_START_DECODE_POS,
-        len = TRANSFER_START_DECODE_LEN)
-    end: bytes[12] = slice(transactionEncoding,
-        start = index * TOTAL_TRANSFER_SIZE + TRANSFER_END_DECODE_POS,
-        len = TRANSFER_END_DECODE_LEN)
-    return (
-        convert(concat(token, start), uint256),
-        convert(concat(token, end), uint256)
-    )
+def decodeNumTransfers(transactionEncoding: bytes[305]) -> uint256:
+    num: bytes[2] = slice(transactionEncoding,
+            start = TX_NUM_TRANSFERS_START,
+            len = TX_NUM_TRANSFERS_LEN)
+    return convert(num, uint256)
+
+### TRANSFER DECODING SECTION ###
 
 @private
 def bytes20ToAddress(addr: bytes[20]) -> address:
     padded: bytes[52] = concat(EMPTY_BYTES32, addr)
     return convert(convert(slice(padded, start=20, len=32), bytes32), address)
 
-TRANSFER_FROM_DECODE_POS: constant(int128) = 0
-TRANSFER_FROM_DECODE_LEN: constant(int128) = 20
+SENDER_START: constant(int128) = 0
+SENDER_LEN: constant(int128) = 20
 @public
-def decodeIthTransferFrom(
+def decodeIthSender(
     index: int128,
-    transactionEncoding: bytes[165]
+    transactionEncoding: bytes[305]
 ) -> address:
+    transferStart: int128 = FIRST_TRANSFER_START + index * TOTAL_TRANSFER_SIZE
     addr: bytes[20] = slice(transactionEncoding,
-        start = 0,# index * TOTAL_TRANSFER_SIZE + TRANSFER_FROM_DECODE_POS,
-        len = 20) #TRANSFER_FROM_DECODE_LEN)
+        start = transferStart + SENDER_START,
+        len = SENDER_LEN)
     return self.bytes20ToAddress(addr)
 
-TRANSFER_TO_DECODE_POS: constant(int128) = 20
-TRANSFER_TO_DECODE_LEN: constant(int128) = 20
+RECIPIENT_START: constant(int128) = 20
+RECIPIENT_LEN: constant(int128) = 20
 @public
-def decodeIthTransferTo(
+def decodeIthRecipient(
     index: int128,
-    transactionEncoding: bytes[165]
+    transactionEncoding: bytes[305]
 ) -> address:
+    transferStart: int128 = FIRST_TRANSFER_START + index * TOTAL_TRANSFER_SIZE
     addr: bytes[20] = slice(transactionEncoding,
-        start = index * TOTAL_TRANSFER_SIZE + TRANSFER_TO_DECODE_POS,
-        len = TRANSFER_TO_DECODE_LEN)
+        start = transferStart + RECIPIENT_START,
+        len = RECIPIENT_LEN)
     return self.bytes20ToAddress(addr)
+
+TR_TOKEN_START: constant(int128) = 40
+TR_TOKEN_LEN: constant(int128) = 4
+@public
+def decodeIthTokenTypeBytes(
+    index: int128,
+    transactionEncoding: bytes[305]
+) -> bytes[4]:
+    transferStart: int128 = FIRST_TRANSFER_START + index * TOTAL_TRANSFER_SIZE
+    tokenType: bytes[4] = slice(transactionEncoding, 
+        start = transferStart + TR_TOKEN_START,
+        len = TR_TOKEN_LEN)
+    return tokenType
+
+@public
+def decodeIthTokenType(
+    index: int128,
+    transactionEncoding: bytes[305]
+) -> uint256:
+    return convert(
+        self.decodeIthTokenTypeBytes(index, transactionEncoding), 
+        uint256
+    )
+
+TR_START_START: constant(int128) = 44
+TR_START_LEN: constant(int128) = 12
+TR_END_START: constant(int128) = 56
+TR_END_LEN: constant(int128) = 12
+@public
+def decodeIthTransferRange(
+    index: int128,
+    transactionEncoding: bytes[305]
+) -> (uint256, uint256): # start, end
+    transferStart: int128 = FIRST_TRANSFER_START + index * TOTAL_TRANSFER_SIZE
+    tokenType: bytes[4] = self.decodeIthTokenTypeBytes(index, transactionEncoding)
+    untypedStart: bytes[12] = slice(transactionEncoding,
+        start = transferStart + TR_START_START,
+        len = TR_START_LEN)
+    untypedEnd: bytes[12] = slice(transactionEncoding,
+        start = transferStart + TR_END_START,
+        len = TR_END_LEN)
+    return (
+        convert(concat(tokenType, untypedStart), uint256),
+        convert(concat(tokenType, untypedEnd), uint256)
+    )
 
 MERKLE_NODE_BYTES: constant(int128) = 48
 @public
@@ -269,7 +306,7 @@ ENCODING_LENGTH_PER_TRANSFER: constant(int128) = 165
 @public #todo make private once tested
 def checkTXValidityAndGetTransfer(
         transferIndex: int128,
-        transactionEncoding: bytes[165], # this will eventually be MAX_TRANSFERS * (SIG_BYTES + TRANSFER_BYTES) + small constant for encoding blockNumber and numTransfers
+        transactionEncoding: bytes[305], # this will eventually be MAX_TRANSFERS * (SIG_BYTES + TRANSFER_BYTES) + small constant for encoding blockNumber and numTransfers
         parsedSums: bytes[64],  #COINID_BYTES * MAX_TRANSFERS (4)
         leafIndices: bytes[4], #MAX_TRANSFERS * MAX_TREE_DEPTH / 8
         proofs: bytes[1536] #TREE_NODE_BYTES (48) * MAX_TREE_DEPTH (8) * MAX_TRANSFERS (4)
@@ -309,7 +346,7 @@ def checkTXValidityAndGetTransfer(
 
         transferStart: uint256
         transferEnd: uint256
-        (transferStart, transferEnd) = self.decodeIthTransferBounds(i, transactionEncoding)
+        (transferStart, transferEnd) = self.decodeIthTransferRange(i, transactionEncoding)
 
         assert implicitStart <= transferStart
         assert transferStart < transferEnd
@@ -317,11 +354,11 @@ def checkTXValidityAndGetTransfer(
         assert implicitEnd <= MAX_END
 
         # signature: bytes[1] = self.decodeIthSignature(i, transactionEncoding)
-        sender: address = self.decodeIthTransferFrom(i, transactionEncoding)
+        sender: address = self.decodeIthSender(i, transactionEncoding)
         # TODO: add signature check here!
 
         if i == transferIndex:
-            requestedTransferTo = self.decodeIthTransferTo(i, transactionEncoding)
+            requestedTransferTo = self.decodeIthRecipient(i, transactionEncoding)
             requestedTransferFrom = sender
             requestedTransferStart = transferStart
             requestedTransferEnd = transferEnd
@@ -351,7 +388,7 @@ def challengeInclusion(exitID: uint256) -> uint256:
 def respondInclusion(
         challengeID: uint256,
         transferIndex: int128,
-        transactionEncoding: bytes[100], # this will be MAX_TRANSFERS * (SIG_BYTES + TRANSFER_BYTES) + small constant for encoding blockNumber and numTransfers
+        transactionEncoding: bytes[305],
         parsedSums: bytes[64],  #COINID_BYTES * MAX_TRANSFERS (4)
         leafIndices: bytes[4], #MAX_TRANSFERS * MAX_TREE_DEPTH / 8
         proofs: bytes[1536] #TREE_NODE_BYTES (58) * MAX_TREE_DEPTH (8) * MAX_TRANSFERS (4)
