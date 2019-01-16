@@ -28,8 +28,11 @@ for (let i = 0; i < 5; i++) {
   web3.eth.accounts.wallet.add(privateKey)
 }
 // For all provider options, see: https://github.com/trufflesuite/ganache-cli#library
-const providerOptions = {'accounts': ganacheAccounts, 'locked': false, 'logger': console}
-web3.setProvider(ganache.provider(providerOptions))
+web3.setProvider(ganache.provider({
+  accounts: ganacheAccounts,
+  locked: false,
+  logger: console
+}))
 
 async function compileVyper (path) {
   const bytecodeOutput = await exec('vyper ' + path + ' -f bytecode')
@@ -60,6 +63,7 @@ async function mineNBlocks (n) {
   console.log('mined ' + n + ' empty blocks')
 }
 
+/*
 async function getCurrentChainSnapshot () {
   return new Promise((resolve, reject) => {
     web3.currentProvider.sendAsync({
@@ -74,7 +78,9 @@ async function getCurrentChainSnapshot () {
     })
   })
 }
+*/
 
+/*
 async function revertToChainSnapshot (snapshot) {
   return new Promise((resolve, reject) => {
     web3.currentProvider.sendAsync({
@@ -93,30 +99,28 @@ async function revertToChainSnapshot (snapshot) {
     })
   })
 }
+*/
 
 describe('Plasma', () => {
-  let bytecode, abi, plasmaCt, plasma, freshContractSnapshot
+  let bytecode, abi, plasmaCt, plasma // , freshContractSnapshot
 
-  before( async () => {
-   [bytecode, abi] = await compileVyper('./contracts/plasmaprime.vy')
-   const addr = web3.eth.accounts.wallet[0].address
+  before(async () => {
+    [bytecode, abi] = await compileVyper('./contracts/plasmaprime.vy')
+    const addr = web3.eth.accounts.wallet[0].address
 
-   plasmaCt = new web3.eth.Contract(JSON.parse(abi), addr, {from: addr, gas: 2500000, gasPrice: '300000'})
-   // const balance = await web3.eth.getBalance(accounts[0].address)
-   const bn = await web3.eth.getBlockNumber()
-   await mineBlock()
-   const bn2 = await web3.eth.getBlockNumber()
-   log(bn)
-   log(bn2)
-   // Now try to deploy
-   plasma = await plasmaCt.deploy({data: bytecode }).send()/*{
-    from: addr,
-    gas: 2500000,
-    gasPrice: '300000'
-  })*/
-  const block = await web3.eth.getBlock('latest')
-  const deploymentTransaction = await web3.eth.getTransaction(block.transactions[0])
-  freshContractSnapshot = await getCurrentChainSnapshot()
+    plasmaCt = new web3.eth.Contract(JSON.parse(abi), addr, { from: addr, gas: 2500000, gasPrice: '300000' })
+    // const balance = await web3.eth.getBalance(accounts[0].address)
+    const bn = await web3.eth.getBlockNumber()
+    await mineBlock()
+    const bn2 = await web3.eth.getBlockNumber()
+    log(bn)
+    log(bn2)
+    // Now try to deploy
+    plasma = await plasmaCt.deploy({ data: bytecode }).send()
+
+    const block = await web3.eth.getBlock('latest')
+    await web3.eth.getTransaction(block.transactions[0])
+    // freshContractSnapshot = await getCurrentChainSnapshot()
   })
 
   it('Should compile the vyper contract without errors', async () => {
@@ -127,44 +131,51 @@ describe('Plasma', () => {
     expect(web3).to.exist
     expect(ganache).to.exist
   })
+
   const dummyBlockHash = '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
   it('should allow a block to be published by the operator', async () => {
     await mineNBlocks(10) // blocktime is 10
-    await plasma.methods.submitBlock(dummyBlockHash).send({value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000}, async function (error, result){ //get callback from function which is your transaction key
+    await plasma.methods.submitBlock(dummyBlockHash).send({ value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000 }, async function (error, result) { // get callback from function which is your transaction key
       if (!error) {
         // const receipt = await web3.eth.getTransactionReceipt(result)
-      } else{
+      } else {
         assert.equal(true, false) // theres a better way but need to fail tests when things throw
         console.log(error)
       }
-    }).catch((error) => {console.log('send callback failed: ', error)})
+    }).catch((error) => {
+      console.log('send callback failed: ', error)
+    })
   })
-  let bigDepositSnapshot
+
+  // let bigDepositSnapshot
   it('should allow a first deposit and add it to the deposits correctly', async () => {
     let depositEnd, depositNextStart
     const depositSize = 50
-    await plasma.methods.deposit(0).send({value: depositSize, from: web3.eth.accounts.wallet[1].address, gas: 4000000}, async function (error, result){ //get callback from function which is your transaction key
+    await plasma.methods.deposit(0).send({ value: depositSize, from: web3.eth.accounts.wallet[1].address, gas: 4000000 }, async function (error, result) { // get callback from function which is your transaction key
       if (error) {
         assert.equal(true, false) // theres a better way but need to fail tests when things throw
         console.log(error)
       }
-    }).catch((error) => {console.log('send callback failed: ', error)})
+    }).catch((error) => {
+      console.log('send callback failed: ', error)
+    })
     depositEnd = await plasma.methods.depositedRanges__end(0).call()
     depositNextStart = await plasma.methods.depositedRanges__nextDepositStart(0).call()
     assert.deepEqual(new BN(depositEnd), new BN(depositSize))
     assert.deepEqual(new BN(depositNextStart), MAX_END)
-    bigDepositSnapshot = getCurrentChainSnapshot()
+    // bigDepositSnapshot = getCurrentChainSnapshot()
   })
+
   it('should allow left, right, and un-aligned exits if unchallenged', async () => {
-    await plasma.methods.beginExit(1, 0, 10, 0).send({value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
-    await plasma.methods.beginExit(1, 20, 30, 0).send({value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
-    await plasma.methods.beginExit(1, 40, 50, 0).send({value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
-    
+    await plasma.methods.beginExit(1, 0, 10, 0).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
+    await plasma.methods.beginExit(1, 20, 30, 0).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
+    await plasma.methods.beginExit(1, 40, 50, 0).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
+
     await mineNBlocks(20)
 
-    await plasma.methods.finalizeExit(0, '0x' + IMAGINARY_PRECEDING.toString(16)).send({value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
-    await plasma.methods.finalizeExit(1, 0).send({value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
-    await plasma.methods.finalizeExit(2, 10).send({value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
+    await plasma.methods.finalizeExit(0, '0x' + IMAGINARY_PRECEDING.toString(16)).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
+    await plasma.methods.finalizeExit(1, 0).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
+    await plasma.methods.finalizeExit(2, 10).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
 
     const imaginaryNext = await plasma.methods.depositedRanges__nextDepositStart('0x' + IMAGINARY_PRECEDING.toString(16)).call()
     const firstDepositEnd = await plasma.methods.depositedRanges__end(0).call()
@@ -174,26 +185,27 @@ describe('Plasma', () => {
     const lastDepositEnd = await plasma.methods.depositedRanges__end(30).call()
     const lastDepositNextStart = await plasma.methods.depositedRanges__nextDepositStart(30).call()
 
-    assert.equal(imaginaryNext, "0")
-    assert.equal(firstDepositEnd, "0")
-    assert.equal(firstDepositNextStart, "10")
-    assert.equal(middleDepositEnd, "20")
-    assert.equal(middleDepositNextStart, "30")
-    assert.equal(lastDepositEnd, "40")
+    assert.equal(imaginaryNext, '0')
+    assert.equal(firstDepositEnd, '0')
+    assert.equal(firstDepositNextStart, '10')
+    assert.equal(middleDepositEnd, '20')
+    assert.equal(middleDepositNextStart, '30')
+    assert.equal(lastDepositEnd, '40')
     assert.equal(lastDepositNextStart, MAX_END.toString())
   })
+
   it('should allow re-deposits into exited ranges', async () => {
-    await plasma.methods.deposit(0).send({value: 5, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
-    await plasma.methods.deposit(10).send({value: 10, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
-    await plasma.methods.deposit(10).send({value: 5, from: web3.eth.accounts.wallet[1].address, gas: 4000000})
+    await plasma.methods.deposit(0).send({ value: 5, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
+    await plasma.methods.deposit(10).send({ value: 10, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
+    await plasma.methods.deposit(10).send({ value: 5, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
 
     const firstRangeEnd = await plasma.methods.depositedRanges__end(0).call()
     const firstRangeNext = await plasma.methods.depositedRanges__nextDepositStart(0).call()
     const middleRangeEnd = await plasma.methods.depositedRanges__end(10).call()
     const middleRangeNext = await plasma.methods.depositedRanges__nextDepositStart(10).call()
-    assert.equal(firstRangeEnd, "5")
-    assert.equal(firstRangeNext, "10")
-    assert.equal(middleRangeEnd, "45")
-    assert.equal(middleRangeNext, "170141183460469231731687303715884105727")  
+    assert.equal(firstRangeEnd, '5')
+    assert.equal(firstRangeNext, '10')
+    assert.equal(middleRangeEnd, '45')
+    assert.equal(middleRangeNext, '170141183460469231731687303715884105727')
   })
 })

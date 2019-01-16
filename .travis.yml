@@ -1,0 +1,15 @@
+language: generic
+
+before_install:
+  - apt-get -y install python3.6 python3-dev python-setuptools
+  - apt install virtualenv
+  - virtualenv -p python3.6 --no-site-packages ~/vyper-venv
+  - source ~/vyper-venv/bin/activate
+  - git clone https://github.com/ethereum/vyper.git
+
+install:
+  - make -f vyper/Makefile
+  - npm install
+
+script:
+  - npm test
