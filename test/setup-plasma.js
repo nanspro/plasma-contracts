@@ -111,7 +111,7 @@ async function setupPlasma () {
   [bytecode, abi] = await compilePlasmaContract()
   const addr = web3.eth.accounts.wallet[0].address
 
-  const plasmaCt = new web3.eth.Contract(JSON.parse(abi), addr, { from: addr, gas: 3500000, gasPrice: '300000' })
+  const plasmaCt = new web3.eth.Contract(JSON.parse(abi), addr, { from: addr, gas: 5500000, gasPrice: '300000' })
 
   await mineBlock()
   // Now try to deploy
