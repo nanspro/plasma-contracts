@@ -17,15 +17,16 @@ const PlasmaMerkleSumTree = plasmaUtils.PlasmaMerkleSumTree
 const models = plasmaUtils.serialization.models
 const Transaction = models.Transaction
 const TransferProof = models.TransferProof
+const TransactionProof = models.TransactionProof
 const setup = require('./setup-plasma')
 const web3 = setup.web3
 
 const CHALLENGE_PERIOD = 20
 
-describe.only('Plasma Initialization', () => {
+describe('Plasma Initialization', () => {
   let bytecode, abi, plasma, freshContractSnapshot
   let randomTXEncoding, randomTX, randomTransferIndex
-  let txs, tree
+  let tx, txs, tree
 
   // BEGIN SETUP
 
@@ -40,8 +41,10 @@ describe.only('Plasma Initialization', () => {
     randomTX = new Transaction(randomTXEncoding)
     randomTXEncoding = '0x' + randomTXEncoding
     randomTransferIndex = Math.floor(Math.random() * 4)
-    // tree of transactions for branch testing
-    txs = setup.getSequentialTxs(32)
+    
+    // tree for testing branch checking
+    tx = new Transaction(encodedTransaction)
+    txs = [tx, randomTX, randomTX]
     tree = new PlasmaMerkleSumTree(txs)
   })
   it('Should compile the vyper contract without errors', async () => {
@@ -191,16 +194,6 @@ describe.only('Plasma Initialization', () => {
       decodedTransfer
     ]
   }
-  const encodedSignedTransaction = '00000001' + '01' + encodedTransfer + '01' + encodedSignature
-  const decodedSignedTransaction = {
-    block: new BN('1', 'hex'),
-    transfers: [
-      decodedTransfer
-    ],
-    signatures: [
-      decodedSignature
-    ]
-  }
   const encodedTransferProof = '00000000000000000000000000000003' + '00000000000000000000000000000004' + encodedSignature + '01' + '563f225cdc192264a90e7e4b402815479c71a16f1593afa4fc6323e18583472affffffffffffffffffffffffffffffff'
   const decodedTransferProof = {
     parsedSum: new BN('3', 'hex'),
@@ -210,34 +203,72 @@ describe.only('Plasma Initialization', () => {
     ],
     signature: decodedSignature
   }
+  const testTransferProof = new TransferProof(decodedTransferProof)
   const encodedTransactionProof = '01' + encodedTransferProof
   const decodedTransactionProof = {
     transferProofs: [
       decodedTransferProof
     ]
   }
+  const transactionProof = new TransactionProof(decodedTransactionProof)
 
-  it('should decodeParsedSum', async () => {
-    const decoded = await plasma.methods.decodeParsedSum('0x' + encodedTransferProof).call()
-    const transferProof = new TransferProof(decodedTransferProof)
-    debugger
-    const expected = transferProof.args.parsedSum.toString()
+  it('should decodeParsedSumBytes', async () => {
+    const decoded = await plasma.methods.decodeParsedSumBytes('0x' + encodedTransferProof).call()
+    const expected = '0x' + testTransferProof.args.parsedSum.toString(16, 32)
     assert.equal(decoded, expected)
   })
-  it.skip('should properly check individual branch proofs and get implicit bounds', async () => {
+  it('should decodeParsedSum', async () => {
+    const decoded = await plasma.methods.decodeParsedSum('0x' + encodedTransferProof).call()
+    const expected = testTransferProof.args.parsedSum.toString()
+    assert.equal(decoded, expected)
+  })
+  it('should decodeLeafIndex', async () => {
+    const decoded = await plasma.methods.decodeLeafIndex('0x' + encodedTransferProof).call()
+
+    const expected = testTransferProof.args.leafIndex.toString()
+    assert.equal(decoded, expected)
+  })
+  it('should decodeSignature', async () => {
+    const decoded = await plasma.methods.decodeSignature('0x' + encodedTransferProof).call()
+    const expected = [
+      '0x' + new BN(testTransferProof.args.signature.v).toString(16),
+      '0x' + new BN(testTransferProof.args.signature.r).toString(16),
+      '0x' + new BN(testTransferProof.args.signature.s).toString(16)
+    ]
+    assert.equal(decoded[0], expected[0])
+    assert.equal(decoded[1], expected[1])
+    assert.equal(decoded[2], expected[2])
+  })
+  it('should decodeIthInclusionProofNode', async () => {
+    const decoded = await plasma.methods.decodeIthInclusionProofNode(0, '0x' + encodedTransferProof).call()
+    const expected = '0x' + new BN(testTransferProof.args.inclusionProof[0]).toString(16)
+    assert.equal(decoded, expected)
+  })
+  it('should decodeNumTransactionProofs', async () => {
+    const decoded = await plasma.methods.decodeNumTransactionProofs('0x' + encodedTransactionProof).call()
+    const expected = new BN(transactionProof.args.transferProofs.length).toString()
+    assert.equal(decoded, expected)
+  })
+  it('should decodeNumInclusionProofNodes', async () => {
+    const decoded = await plasma.methods.decodeNumInclusionProofNodes('0x' + encodedTransactionProof).call()
+
+    const expected = testTransferProof.args.inclusionProof.length
+    assert.equal(decoded, expected)
+  })
+  it('should decodeIthTransferProofWithNumNodes', async () => {
+    const decoded = await plasma.methods.decodeIthTransferProofWithNumNodes(0, 1, '0x' + encodedTransactionProof).call()
+    const expected = '0x' + encodedTransferProof
+    assert.equal(decoded, expected)
+  })
+
+  it('should checkTransferProofAndGetBounds', async () => {
     await plasma.methods.submitBlock('0x' + tree.root().hash).send({ value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000 })
-    const index = Math.floor(Math.random() * txs.length)
-    let proof = tree.getInclusionProof(index)
-    const parsedSum = proof[0].sum
-    proof.shift()
-    let proofString = '0x'
-    proof.forEach((element) => { proofString = proofString + element.hash + element.sum.toString(16, 32) })
+    const index = 0
+    let transferProof = tree.getTransferProof(index)
     const possibleImplicitBounds = await plasma.methods.checkBranchAndGetBounds(
       web3.utils.soliditySha3('0x' + txs[index].encoded),
-      '0x' + parsedSum.toString(16, 32),
-      index,
-      proofString,
-      1
+      1,
+      '0x' + transferProof.encoded
     ).call()
     assert.equal(possibleImplicitBounds[0], new BN(txs[index].args.transfer.start))
     assert(new BN(possibleImplicitBounds[1]).gte(new BN(txs[index].args.transfer.end)))
