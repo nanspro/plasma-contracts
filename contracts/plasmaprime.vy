@@ -33,7 +33,7 @@ challengeNonce: public(uint256)
 # period (of ethereum blocks) during which an exit can be challenged
 CHALLENGE_PERIOD: constant(uint256) = 20
 # minimum number of ethereum blocks between new plasma blocks
-PLASMA_BLOCK_INTERVAL: constant(uint256) = 10
+PLASMA_BLOCK_INTERVAL: constant(uint256) = 0
 #
 MAX_TREE_DEPTH: constant(int128) = 8
 MAX_TRANSFERS: constant(uint256) = 4
@@ -268,38 +268,24 @@ def decodeIthTransferRange(
 # be larger because we slice the TX encoding to get it.  So it has to be
 # TRANSFERPROOF_COUNT_LEN + 437 * MAX_TRANSFERS = 1 + 1744 * 4 = 1749
 
-NUMNODES_START: constant(int128) = 97
-NUMNODES_LEN: constant(int128) = 1
-@public
-def decodeNumInclusionProofNodes(transferProofEncoding: bytes[1749]) -> int128:
-    numNodes: bytes[1] = slice(
-        transferProofEncoding,
-        start = NUMNODES_START,
-        len = NUMNODES_LEN
-    )
-    return convert(numNodes, int128)
-
-
 TREENODE_LEN: constant(int128) = 48
-@public
-def getIthTransactionProofStart(index: int128, numInclusionProofNodes: int128) -> int128:
-    return index * (
-        PARSEDSUM_LEN +
-        LEAFINDEX_LEN +
-        SIGV_LEN + SIGR_LEN + SIGS_LEN +
-        NUMNODES_LEN + 
-        numInclusionProofNodes * TREENODE_LEN
-    )
 
 PARSEDSUM_START: constant(int128) = 0
 PARSEDSUM_LEN: constant(int128) = 16
 @public
-def decodeParsedSum(
+def decodeParsedSumBytes(
     transferProofEncoding: bytes[1749] 
-) -> uint256:
+) -> bytes[16]:
     parsedSum: bytes[16] = slice(transferProofEncoding,
         start = PARSEDSUM_START,
         len = PARSEDSUM_LEN)
+    return parsedSum
+
+@public
+def decodeParsedSum(
+    transferProofEncoding: bytes[1749] 
+) -> uint256:
+    parsedSum: bytes[16] = self.decodeParsedSumBytes(transferProofEncoding)
     return convert(parsedSum, uint256)
 
 LEAFINDEX_START: constant(int128) = 16
@@ -339,7 +325,7 @@ def decodeSignature(
         start = SIGR_OFFSET,
         len = SIGR_LEN)
     sigS: bytes[32] = slice(sig,
-        start = SIGR_OFFSET,
+        start = SIGS_OFFSET,
         len = SIGS_LEN)
     return (
         sigV,
@@ -347,128 +333,177 @@ def decodeSignature(
         convert(sigS, bytes32)
     )
 
-INCLUSIONPROOF_START: constant(int128) = 58
+NUMNODES_START: constant(int128) = 97
+NUMPROOFNODES_LEN: constant(int128) = 1
 @public
-def decodeInclusionProof(
-    numInclusionProofNodes: int128,
+def decodeNumInclusionProofNodes(transferProofEncoding: bytes[1749]) -> int128:
+    numNodes: bytes[1] = slice(
+        transferProofEncoding,
+        start = NUMNODES_START,
+        len = NUMPROOFNODES_LEN
+    )
+    return convert(numNodes, int128)
+
+INCLUSIONPROOF_START: constant(int128) = 98
+@public
+def decodeIthInclusionProofNode(
+    index: int128,
     transferProofEncoding: bytes[1749]
-) -> bytes[1749]: # = MAX_TREE_DEPTH * TREENODE_LEN = 384 is what it should be but because of variable in slice vyper won't let us say that :(
-    inclusionProof: bytes[1749] = slice(transferProofEncoding, 
-        start = INCLUSIONPROOF_START,
-        len = numInclusionProofNodes * TREENODE_LEN)
-    return inclusionProof
+) -> bytes[48]: # = MAX_TREE_DEPTH * TREENODE_LEN = 384 is what it should be but because of variable in slice vyper won't let us say that :(
+    proofNode: bytes[48] = slice(transferProofEncoding, 
+        start = index * TREENODE_LEN + INCLUSIONPROOF_START,
+        len =  TREENODE_LEN)
+    return proofNode
+
+### BEGIN TRANSACTION PROOF DECODING SECTION ###
+
+NUMTRPROOFS_START: constant(int128) = 0
+NUMTRPROOFS_LEN: constant(int128) = 1
+@public
+def decodeNumTransactionProofs(
+    transactionProofEncoding: bytes[1749]
+) -> int128:
+    numInclusionProofs: bytes[1] = slice(
+        transactionProofEncoding,
+        start = NUMTRPROOFS_START,
+        len = NUMTRPROOFS_LEN
+    )
+    return convert(numInclusionProofs, int128)
+
+FIRST_TRANSFERPROOF_START: constant(int128) = 1
+@public
+def decodeIthTransferProofWithNumNodes(
+    index: int128,
+    numInclusionProofNodes: int128,
+    transactionProofEncoding: bytes[1749]
+) -> bytes[1749]:
+    transactionProofLen: int128 = (
+        PARSEDSUM_LEN +
+        LEAFINDEX_LEN +
+        SIGS_LEN + SIGV_LEN + SIGR_LEN +
+        NUMPROOFNODES_LEN + 
+        TREENODE_LEN * numInclusionProofNodes
+    )
+    transferProof: bytes[1749] = slice(
+        transactionProofEncoding,
+        start = index * transactionProofLen + FIRST_TRANSFERPROOF_START,
+        len = transactionProofLen
+    )
+    return transferProof
 
 @public
-def checkBranchAndGetBounds(
-    leafHash: bytes32, 
-    parsedSum: bytes[16], 
-    leafIndex: int128, # which leaf in the merkle sum tree this branch is
-    proof: bytes[1536], # will always really be at most 384 = MAX_TREE_DEPTH (8) * TREENODE_LEN (48).  but because of dumb type casting in vyper, it thinks it *might* be larger because we have a variable slice.
-    bn: uint256 # plasma block number
+def checkTransferProofAndGetBounds(
+    leafHash: bytes32,
+    blockNum: uint256,
+    transferProof: bytes[1749]
 ) -> (uint256, uint256):
+    parsedSum: bytes[16] = self.decodeParsedSumBytes(transferProof)
+    numProofNodes: int128 = self.decodeNumInclusionProofNodes(transferProof)
+    leafIndex: int128 = self.decodeLeafIndex(transferProof)
+
     computedNode: bytes[48] = concat(leafHash, parsedSum)
     totalSum: uint256 = convert(parsedSum, uint256)
     leftSum: uint256 = 0
     rightSum: uint256 = 0
     pathIndex: int128 = leafIndex
-    for nodeIndex in range(MAX_TREE_DEPTH):
-        if nodeIndex * TREENODE_LEN == len(proof):
-            break
-        proofNode: bytes[48] = slice(
-            proof, 
-            start = nodeIndex * TREENODE_LEN, 
-            len = TREENODE_LEN
-        )
-        siblingSum: uint256 = convert(slice(proofNode, start=32, len=16), uint256)
-        totalSum += siblingSum
-        hashed: bytes32
-        if pathIndex % 2 == 0:
-            hashed = sha3(concat(computedNode, proofNode))
-            rightSum += siblingSum
-        else:
-            hashed = sha3(concat(proofNode, computedNode))
-            leftSum += siblingSum
-        totalSumAsBytes: bytes[16] = slice( #This is all a silly trick since vyper won't directly convert numbers to bytes[]...classic :P
-            concat(EMPTY_BYTES32, convert(totalSum, bytes32)),
-            start=48,
-            len=16
-        )
-        computedNode = concat(hashed, totalSumAsBytes)
-        pathIndex /= 2
-    rootHash: bytes[32] = slice(computedNode, start=0, len=32)
-    rootSum: uint256 = convert(slice(computedNode, start=32, len=16), uint256)
-    assert convert(rootHash, bytes32) == self.blockHashes[bn]
-    return (leftSum, rootSum - rightSum)
+    return (numProofNodes, numProofNodes)
+    proofNode: bytes[48] = self.decodeIthInclusionProofNode(4, transferProof)
+    
+    #for nodeIndex in range(MAX_TREE_DEPTH):
+    #    if nodeIndex == numProofNodes:
+    #        break
+    #    proofNode: bytes[48] = self.decodeIthInclusionProofNode(nodeIndex, transferProof)
+    #    siblingSum: uint256 = convert(slice(proofNode, start=32, len=16), uint256)
+    #    totalSum += siblingSum
+    #    hashed: bytes32
+    #    if pathIndex % 2 == 0:
+    #        hashed = sha3(concat(computedNode, proofNode))
+    #        rightSum += siblingSum
+    #    else:
+    #        hashed = sha3(concat(proofNode, computedNode))
+    #        leftSum += siblingSum
+    #    totalSumAsBytes: bytes[16] = slice( #This is all a silly trick since vyper won't directly convert numbers to bytes[]...classic :P
+    #        concat(EMPTY_BYTES32, convert(totalSum, bytes32)),
+    #        start=48,
+    #        len=16
+    #    )
+    #    computedNode = concat(hashed, totalSumAsBytes)
+    #    pathIndex /= 2
+    #rootHash: bytes[32] = slice(computedNode, start=0, len=32)
+    #rootSum: uint256 = convert(slice(computedNode, start=32, len=16), uint256)
+    # assert convert(rootHash, bytes32) == self.blockHashes[blockNum]
+    #return (leftSum, rootSum - rightSum)
+    return (0,0)
 
-COINID_BYTES: constant(int128) = 16
-PROOF_MAX_LENGTH: constant(uint256) = 384 # 384 = TREENODE_LEN (48) * MAX_TREE_DEPTH (8) 
-ENCODING_LENGTH_PER_TRANSFER: constant(int128) = 165
-@public #todo make private once tested
-def checkTXValidityAndGetTransfer(
-        transferIndex: int128,
-        transactionEncoding: bytes[277], # this will eventually be MAX_TRANSFERS * (SIG_BYTES + TRANSFER_BYTES) + small constant for encoding blockNumber and numTransfers
-        parsedSums: bytes[64],  #COINID_BYTES * MAX_TRANSFERS (4)
-        leafIndices: bytes[4], #MAX_TRANSFERS * MAX_TREE_DEPTH / 8
-        proofs: bytes[1536] #TREENODE_LEN (48) * MAX_TREE_DEPTH (8) * MAX_TRANSFERS (4)
-    ) -> (
-        address, # transfer.to
-        address, # transfer.from
-        uint256, # transfer.start
-        uint256, # transfer.end
-        uint256 # transaction plasmaBlockNumber
-    ):
-    leafHash: bytes32 = self.getLeafHash(transactionEncoding)
-    plasmaBlockNumber: uint256 = self.decodeBlockNumber(transactionEncoding)
+#COINID_BYTES: constant(int128) = 16
+#PROOF_MAX_LENGTH: constant(uint256) = 384 # 384 = TREENODE_LEN (48) * MAX_TREE_DEPTH (8) 
+#ENCODING_LENGTH_PER_TRANSFER: constant(int128) = 165
+#@public #todo make private once tested
+#def checkTXValidityAndGetTransfer(
+#        transferIndex: int128,
+#        transactionEncoding: bytes[277], # this will eventually be MAX_TRANSFERS * (SIG_BYTES + TRANSFER_BYTES) + small constant for encoding blockNumber and numTransfers
+#        parsedSums: bytes[64],  #COINID_BYTES * MAX_TRANSFERS (4)
+#        leafIndices: bytes[4], #MAX_TRANSFERS * MAX_TREE_DEPTH / 8
+#        proofs: bytes[1536] #TREENODE_LEN (48) * MAX_TREE_DEPTH (8) * MAX_TRANSFERS (4)
+#    ) -> (
+#        address, # transfer.to
+#        address, # transfer.from
+#        uint256, # transfer.start
+#        uint256, # transfer.end
+#        uint256 # transaction plasmaBlockNumber
+#    ):
+#    leafHash: bytes32 = self.getLeafHash(transactionEncoding)
+#    plasmaBlockNumber: uint256 = self.decodeBlockNumber(transactionEncoding)
 
-    requestedTransferStart: uint256 # these will be the ones at the trIndex we are being asked about by the exit game
-    requestedTransferEnd: uint256
-    requestedTransferTo: address
-    requestedTransferFrom: address
-    numTransfers: int128 = len(transactionEncoding) / ENCODING_LENGTH_PER_TRANSFER
-    proofSize: int128 = len(proofs) / numTransfers
-    for i in range(MAX_TRANSFERS):
-        if i == numTransfers: #loop for max possible transfers, but break so we don't go past
-            break
+#    requestedTransferStart: uint256 # these will be the ones at the trIndex we are being asked about by the exit game
+#    requestedTransferEnd: uint256
+#    requestedTransferTo: address
+#    requestedTransferFrom: address
+#    numTransfers: int128 = len(transactionEncoding) / ENCODING_LENGTH_PER_TRANSFER
+#    proofSize: int128 = len(proofs) / numTransfers
+#    for i in range(MAX_TRANSFERS):
+#        if i == numTransfers: #loop for max possible transfers, but break so we don't go past
+#            break
 
-        parsedSum: bytes[16] = slice(parsedSums, start = i * COINID_BYTES, len = COINID_BYTES) # COINID_BYTES = 16
-        leafIndex: bytes[1] = slice(leafIndices, start = i * MAX_TREE_DEPTH / 8, len = MAX_TREE_DEPTH / 8) # num bytes is MAX_TREE_DEPTH / 8
-        proof: bytes[1536] =  slice(proofs, start = i * proofSize, len = proofSize) # IN PRACTICE, proof will always be much smaller, but type casting in vyper prevents it from compiling at lower vals
+#        parsedSum: bytes[16] = slice(parsedSums, start = i * COINID_BYTES, len = COINID_BYTES) # COINID_BYTES = 16
+#        leafIndex: bytes[1] = slice(leafIndices, start = i * MAX_TREE_DEPTH / 8, len = MAX_TREE_DEPTH / 8) # num bytes is MAX_TREE_DEPTH / 8
+#        proof: bytes[1536] =  slice(proofs, start = i * proofSize, len = proofSize) # IN PRACTICE, proof will always be much smaller, but type casting in vyper prevents it from compiling at lower vals
 
-        implicitStart: uint256 = 0
-        implicitEnd: uint256 = 10000
-        (implicitStart, implicitEnd) = self.checkBranchAndGetBounds(
-            leafHash,
-            parsedSum,
-            convert(leafIndex, int128),
-            proof,
-            plasmaBlockNumber
-        )
+#        implicitStart: uint256 = 0
+#        implicitEnd: uint256 = 10000
+#        (implicitStart, implicitEnd) = self.checkBranchAndGetBounds(
+#            leafHash,
+#            parsedSum,
+#            convert(leafIndex, int128),
+#            proof,
+#            plasmaBlockNumber
+#        )
+#
+#        transferStart: uint256
+#        transferEnd: uint256
+#        (transferStart, transferEnd) = self.decodeIthTransferRange(i, transactionEncoding)
 
-        transferStart: uint256
-        transferEnd: uint256
-        (transferStart, transferEnd) = self.decodeIthTransferRange(i, transactionEncoding)
+#        assert implicitStart <= transferStart
+#        assert transferStart < transferEnd
+#        assert transferEnd <= implicitEnd
+#        assert implicitEnd <= MAX_END
 
-        assert implicitStart <= transferStart
-        assert transferStart < transferEnd
-        assert transferEnd <= implicitEnd
-        assert implicitEnd <= MAX_END
-
-        # signature: bytes[1] = self.decodeIthSignature(i, transactionEncoding)
-        sender: address = self.decodeIthSender(i, transactionEncoding)
-        # TODO: add signature check here!
-
-        if i == transferIndex:
-            requestedTransferTo = self.decodeIthRecipient(i, transactionEncoding)
-            requestedTransferFrom = sender
-            requestedTransferStart = transferStart
-            requestedTransferEnd = transferEnd
-    return (
-        requestedTransferTo,
-        requestedTransferFrom,
-        requestedTransferStart,
-        requestedTransferEnd,
-        plasmaBlockNumber
-    )
+#        # signature: bytes[1] = self.decodeIthSignature(i, transactionEncoding)
+#        sender: address = self.decodeIthSender(i, transactionEncoding)
+#        # TODO: add signature check here!
+#
+#        if i == transferIndex:
+#            requestedTransferTo = self.decodeIthRecipient(i, transactionEncoding)
+#            requestedTransferFrom = sender
+#            requestedTransferStart = transferStart
+#            requestedTransferEnd = transferEnd
+#    return (
+#        requestedTransferTo,
+#        requestedTransferFrom,
+#        requestedTransferStart,
+#        requestedTransferEnd,
+#        plasmaBlockNumber
+#    )
 
 @public
 def challengeInclusion(exitID: uint256) -> uint256:
