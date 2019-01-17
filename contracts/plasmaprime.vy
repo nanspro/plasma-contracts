@@ -180,6 +180,19 @@ def decodeNumTransfers(transactionEncoding: bytes[277]) -> uint256:
             len = TX_NUM_TRANSFERS_LEN)
     return convert(num, uint256)
 
+FIRST_TR_START: constant(int128) = 5
+TR_LEN: constant(int128) = 68
+@public
+def decodeIthTransfer(
+    index: int128,
+    transactionEncoding: bytes[277]
+) -> bytes[68]:
+    transfer: bytes[68] = slice(transactionEncoding,
+        start = TR_LEN * index + FIRST_TR_START,
+        len = TR_LEN
+    )
+    return transfer
+
 ### BEGIN TRANSFER DECODING SECTION ###
 
 @private
@@ -190,49 +203,46 @@ def bytes20ToAddress(addr: bytes[20]) -> address:
 SENDER_START: constant(int128) = 0
 SENDER_LEN: constant(int128) = 20
 @public
-def decodeIthSender(
+def decodeSender(
     index: int128,
-    transactionEncoding: bytes[277]
+    transferEncoding: bytes[68]
 ) -> address:
-    transferStart: int128 = FIRST_TRANSFER_START + index * TOTAL_TRANSFER_SIZE
-    addr: bytes[20] = slice(transactionEncoding,
-        start = transferStart + SENDER_START,
+    addr: bytes[20] = slice(transferEncoding,
+        start = SENDER_START,
         len = SENDER_LEN)
     return self.bytes20ToAddress(addr)
 
 RECIPIENT_START: constant(int128) = 20
 RECIPIENT_LEN: constant(int128) = 20
 @public
-def decodeIthRecipient(
+def decodeRecipient(
     index: int128,
-    transactionEncoding: bytes[277]
+    transferEncoding: bytes[68]
 ) -> address:
-    transferStart: int128 = FIRST_TRANSFER_START + index * TOTAL_TRANSFER_SIZE
-    addr: bytes[20] = slice(transactionEncoding,
-        start = transferStart + RECIPIENT_START,
+    addr: bytes[20] = slice(transferEncoding,
+        start = RECIPIENT_START,
         len = RECIPIENT_LEN)
     return self.bytes20ToAddress(addr)
 
 TR_TOKEN_START: constant(int128) = 40
 TR_TOKEN_LEN: constant(int128) = 4
 @public
-def decodeIthTokenTypeBytes(
+def decodeTokenTypeBytes(
     index: int128,
-    transactionEncoding: bytes[277]
+    transferEncoding: bytes[68]
 ) -> bytes[4]:
-    transferStart: int128 = FIRST_TRANSFER_START + index * TOTAL_TRANSFER_SIZE
-    tokenType: bytes[4] = slice(transactionEncoding, 
-        start = transferStart + TR_TOKEN_START,
+    tokenType: bytes[4] = slice(transferEncoding, 
+        start = TR_TOKEN_START,
         len = TR_TOKEN_LEN)
     return tokenType
 
 @public
-def decodeIthTokenType(
+def decodeTokenType(
     index: int128,
-    transactionEncoding: bytes[277]
+    transferEncoding: bytes[68]
 ) -> uint256:
     return convert(
-        self.decodeIthTokenTypeBytes(index, transactionEncoding), 
+        self.decodeTokenTypeBytes(index, transferEncoding), 
         uint256
     )
 
@@ -241,17 +251,16 @@ TR_START_LEN: constant(int128) = 12
 TR_END_START: constant(int128) = 56
 TR_END_LEN: constant(int128) = 12
 @public
-def decodeIthTransferRange(
+def decodeTransferRange(
     index: int128,
-    transactionEncoding: bytes[277]
+    transferEncoding: bytes[68]
 ) -> (uint256, uint256): # start, end
-    transferStart: int128 = FIRST_TRANSFER_START + index * TOTAL_TRANSFER_SIZE
-    tokenType: bytes[4] = self.decodeIthTokenTypeBytes(index, transactionEncoding)
-    untypedStart: bytes[12] = slice(transactionEncoding,
-        start = transferStart + TR_START_START,
+    tokenType: bytes[4] = self.decodeTokenTypeBytes(index, transferEncoding)
+    untypedStart: bytes[12] = slice(transferEncoding,
+        start = TR_START_START,
         len = TR_START_LEN)
-    untypedEnd: bytes[12] = slice(transactionEncoding,
-        start = transferStart + TR_END_START,
+    untypedEnd: bytes[12] = slice(transferEncoding,
+        start = TR_END_START,
         len = TR_END_LEN)
     return (
         convert(concat(tokenType, untypedStart), uint256),
@@ -406,34 +415,31 @@ def checkTransferProofAndGetBounds(
     leftSum: uint256 = 0
     rightSum: uint256 = 0
     pathIndex: int128 = leafIndex
-    return (numProofNodes, numProofNodes)
-    proofNode: bytes[48] = self.decodeIthInclusionProofNode(4, transferProof)
     
-    #for nodeIndex in range(MAX_TREE_DEPTH):
-    #    if nodeIndex == numProofNodes:
-    #        break
-    #    proofNode: bytes[48] = self.decodeIthInclusionProofNode(nodeIndex, transferProof)
-    #    siblingSum: uint256 = convert(slice(proofNode, start=32, len=16), uint256)
-    #    totalSum += siblingSum
-    #    hashed: bytes32
-    #    if pathIndex % 2 == 0:
-    #        hashed = sha3(concat(computedNode, proofNode))
-    #        rightSum += siblingSum
-    #    else:
-    #        hashed = sha3(concat(proofNode, computedNode))
-    #        leftSum += siblingSum
-    #    totalSumAsBytes: bytes[16] = slice( #This is all a silly trick since vyper won't directly convert numbers to bytes[]...classic :P
-    #        concat(EMPTY_BYTES32, convert(totalSum, bytes32)),
-    #        start=48,
-    #        len=16
-    #    )
-    #    computedNode = concat(hashed, totalSumAsBytes)
-    #    pathIndex /= 2
-    #rootHash: bytes[32] = slice(computedNode, start=0, len=32)
-    #rootSum: uint256 = convert(slice(computedNode, start=32, len=16), uint256)
-    # assert convert(rootHash, bytes32) == self.blockHashes[blockNum]
-    #return (leftSum, rootSum - rightSum)
-    return (0,0)
+    for nodeIndex in range(MAX_TREE_DEPTH):
+        if nodeIndex == numProofNodes:
+            break
+        proofNode: bytes[48] = self.decodeIthInclusionProofNode(nodeIndex, transferProof)
+        siblingSum: uint256 = convert(slice(proofNode, start=32, len=16), uint256)
+        totalSum += siblingSum
+        hashed: bytes32
+        if pathIndex % 2 == 0:
+            hashed = sha3(concat(computedNode, proofNode))
+            rightSum += siblingSum
+        else:
+            hashed = sha3(concat(proofNode, computedNode))
+            leftSum += siblingSum
+        totalSumAsBytes: bytes[16] = slice( #This is all a silly trick since vyper won't directly convert numbers to bytes[]...classic :P
+            concat(EMPTY_BYTES32, convert(totalSum, bytes32)),
+            start=48,
+            len=16
+        )
+        computedNode = concat(hashed, totalSumAsBytes)
+        pathIndex /= 2
+    rootHash: bytes[32] = slice(computedNode, start=0, len=32)
+    rootSum: uint256 = convert(slice(computedNode, start=32, len=16), uint256)
+    assert convert(rootHash, bytes32) == self.blockHashes[blockNum]
+    return (leftSum, rootSum - rightSum)
 
 #COINID_BYTES: constant(int128) = 16
 #PROOF_MAX_LENGTH: constant(uint256) = 384 # 384 = TREENODE_LEN (48) * MAX_TREE_DEPTH (8) 
@@ -526,7 +532,7 @@ def respondInclusion(
         transactionEncoding: bytes[277],
         parsedSums: bytes[64],  #COINID_BYTES * MAX_TRANSFERS (4)
         leafIndices: bytes[4], #MAX_TRANSFERS * MAX_TREE_DEPTH / 8
-        proofs: bytes[1536] #TREENODE_LEN (58) * MAX_TREE_DEPTH (8) * MAX_TRANSFERS (4)
+        proofs: bytes[1536] #TREENODE_LEN (48) * MAX_TREE_DEPTH (8) * MAX_TRANSFERS (4)
 ):
     assert self.inclusionChallenges[challengeID].ongoing
 
