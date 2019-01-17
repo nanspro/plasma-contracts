@@ -138,12 +138,12 @@ describe.only('Plasma Initialization', () => {
   })
   it('should decode ith transfer sender', async () => {
     const decoded = await plasma.methods.decodeIthSender(randomTransferIndex, randomTXEncoding).call()
-    const expected = randomTX.args.transfers[randomTransferIndex].sender
+    const expected = randomTX.args.transfers[randomTransferIndex].sender.toLowerCase()
     assert.equal(decoded.toLowerCase(), expected)
   })
   it('should decode ith transfer recipient', async () => {
     const decoded = await plasma.methods.decodeIthRecipient(randomTransferIndex, randomTXEncoding).call()
-    const expected = randomTX.args.transfers[randomTransferIndex].recipient
+    const expected = randomTX.args.transfers[randomTransferIndex].recipient.toLowerCase()
     assert.equal(decoded.toLowerCase(), expected)
   })
   it('should decode ith token type bytes', async () => {
