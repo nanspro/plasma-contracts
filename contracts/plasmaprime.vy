@@ -70,6 +70,8 @@ def submitBlock(newBlockHash: bytes32):
     self.nextPlasmaBlockNumber += 1
     self.last_publish = block.number
 
+### BEGIN DEPOSITS AND EXITS SECTION ###
+
 @public
 @payable
 def submitDeposit():
@@ -141,7 +143,7 @@ def finalizeExit(exitID: uint256, exitableEnd: uint256) -> uint256:
     send(exiter, exitValue)
     return exitEnd
 
-### TRANSACTION DECODING SECION ###
+### BEGIN TRANSACTION DECODING SECION ###
 
 # Note: TX Encoding Lengths
 #
@@ -151,10 +153,11 @@ def finalizeExit(exitID: uint256, exitableEnd: uint256) -> uint256:
 #     TX_BLOCK_DECODE_LEN + 
 #     TX_NUM_TRANSFERS_LEN +
 #     MAX_TRANSFERS * TRANSFER_LEN 
-# Currently we take MAX_TRANSFERS = 4, so it's 32 + 1 + 4 * 68 = 305
+# Currently we take MAX_TRANSFERS = 4, so the max TX encoding bytes is:
+# 4 + 1 + 4 * 68 = 277
 
 # Decoding constants used by multiple functions below:
-FIRST_TRANSFER_START: constant(int128) = 33 # 32 Byte block hash + 1 byte numTransfers
+FIRST_TRANSFER_START: constant(int128) = 5 # 4 Byte blockNum + 1 byte numTransfers
 TOTAL_TRANSFER_SIZE: constant(int128) = 68
 
 @public
@@ -162,7 +165,7 @@ def getLeafHash(transactionEncoding: bytes[305]) -> bytes32:
     return sha3(transactionEncoding)
 
 TX_BLOCKNUM_START: constant(int128) = 0
-TX_BLOCKNUM_LEN: constant(int128) = 32
+TX_BLOCKNUM_LEN: constant(int128) = 4
 @public
 def decodeBlockNumber(transactionEncoding: bytes[305]) -> uint256:
     bn: bytes[32] = slice(transactionEncoding,
@@ -170,7 +173,7 @@ def decodeBlockNumber(transactionEncoding: bytes[305]) -> uint256:
             len = TX_BLOCKNUM_LEN)
     return convert(bn, uint256)
 
-TX_NUM_TRANSFERS_START: constant(int128) = 32
+TX_NUM_TRANSFERS_START: constant(int128) = 4
 TX_NUM_TRANSFERS_LEN: constant(int128) = 1
 @public
 def decodeNumTransfers(transactionEncoding: bytes[305]) -> uint256:
@@ -179,7 +182,7 @@ def decodeNumTransfers(transactionEncoding: bytes[305]) -> uint256:
             len = TX_NUM_TRANSFERS_LEN)
     return convert(num, uint256)
 
-### TRANSFER DECODING SECTION ###
+### BEGIN TRANSFER DECODING SECTION ###
 
 @private
 def bytes20ToAddress(addr: bytes[20]) -> address:
@@ -288,7 +291,7 @@ def checkBranchAndGetBounds(
         else:
             hashed = sha3(concat(proofNode, computedNode))
             leftSum += siblingSum
-        totalSumAsBytes: bytes[16] = slice( #This is all a silly trick since vyper won't direct convert numbers to bytes[]
+        totalSumAsBytes: bytes[16] = slice( #This is all a silly trick since vyper won't directly convert numbers to bytes[]...classic :P
             concat(EMPTY_BYTES32, convert(totalSum, bytes32)),
             start=48,
             len=16
