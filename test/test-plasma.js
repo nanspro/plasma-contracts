@@ -220,8 +220,8 @@ describe.only('Plasma Initialization', () => {
   it('should decodeParsedSum', async () => {
     const decoded = await plasma.methods.decodeParsedSum('0x' + encodedTransferProof).call()
     const transferProof = new TransferProof(decodedTransferProof)
-
-    const expected = transferProof.args.transfers[0].parsedSum.toString()
+    debugger
+    const expected = transferProof.args.parsedSum.toString()
     assert.equal(decoded, expected)
   })
   it.skip('should properly check individual branch proofs and get implicit bounds', async () => {
