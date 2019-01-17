@@ -1,7 +1,7 @@
 {
   "name": "plasma-contracts",
-  "version": "1.0.0",
-  "description": "Plasma network smart contracts",
+  "version": "0.0.1",
+  "description": "PG Plasma smart contracts",
   "main": "index.js",
   "directories": {
     "test": "test"
@@ -13,7 +13,7 @@
   },
   "husky": {
     "hooks": {
-      "pre-commit": "lint-staged"
+      "pre-commit": "npm test && lint-staged"
     }
   },
   "lint-staged": {
