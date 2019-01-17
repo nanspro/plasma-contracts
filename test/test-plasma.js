@@ -14,7 +14,9 @@ const BN = Web3.utils.BN
 
 const plasmaUtils = require('plasma-utils')
 const PlasmaMerkleSumTree = plasmaUtils.PlasmaMerkleSumTree
-const Transaction = plasmaUtils.serialization.models.Transaction
+const models = plasmaUtils.serialization.models
+const Transaction = models.Transaction
+const TransferProof = models.TransferProof
 const setup = require('./setup-plasma')
 const web3 = setup.web3
 
@@ -35,7 +37,6 @@ describe.only('Plasma Initialization', () => {
     const numTransfers = 4
     const blockNum = 1
     randomTXEncoding = genRandomTX(blockNum, numTransfers)
-    debugger
     randomTX = new Transaction(randomTXEncoding)
     randomTXEncoding = '0x' + randomTXEncoding
     randomTransferIndex = Math.floor(Math.random() * 4)
@@ -168,11 +169,65 @@ describe.only('Plasma Initialization', () => {
     assert.equal(decoded[0], expected[0])
     assert.equal(decoded[1], expected[1])
   })
+
+  const encodedTransfer = '43aaDF3d5b44290385fe4193A1b13f15eF3A4FD5a12bcf1159aa01c739269391ae2d0be4037259f300000001000000000000000000000002000000000000000000000003'
+  const decodedTransfer = {
+    sender: '0x43aaDF3d5b44290385fe4193A1b13f15eF3A4FD5',
+    recipient: '0xa12bcf1159aa01c739269391ae2d0be4037259f3',
+    token: new BN('1', 'hex'),
+    start: new BN('2', 'hex'),
+    end: new BN('3', 'hex')
+  }
+  const encodedSignature = '1bd693b532a80fed6392b428604171fb32fdbf953728a3a7ecc7d4062b1652c04224e9c602ac800b983b035700a14b23f78a253ab762deab5dc27e3555a750b354'
+  const decodedSignature = {
+    v: '1b',
+    r: 'd693b532a80fed6392b428604171fb32fdbf953728a3a7ecc7d4062b1652c042',
+    s: '24e9c602ac800b983b035700a14b23f78a253ab762deab5dc27e3555a750b354'
+  }
+  const encodedTransaction = '00000001' + '01' + encodedTransfer
+  const decodedTransaction = {
+    block: new BN('1', 'hex'),
+    transfers: [
+      decodedTransfer
+    ]
+  }
+  const encodedSignedTransaction = '00000001' + '01' + encodedTransfer + '01' + encodedSignature
+  const decodedSignedTransaction = {
+    block: new BN('1', 'hex'),
+    transfers: [
+      decodedTransfer
+    ],
+    signatures: [
+      decodedSignature
+    ]
+  }
+  const encodedTransferProof = '00000000000000000000000000000003' + '00000000000000000000000000000004' + encodedSignature + '01' + '563f225cdc192264a90e7e4b402815479c71a16f1593afa4fc6323e18583472affffffffffffffffffffffffffffffff'
+  const decodedTransferProof = {
+    parsedSum: new BN('3', 'hex'),
+    leafIndex: new BN('4', 'hex'),
+    inclusionProof: [
+      '563f225cdc192264a90e7e4b402815479c71a16f1593afa4fc6323e18583472affffffffffffffffffffffffffffffff'
+    ],
+    signature: decodedSignature
+  }
+  const encodedTransactionProof = '01' + encodedTransferProof
+  const decodedTransactionProof = {
+    transferProofs: [
+      decodedTransferProof
+    ]
+  }
+
+  it('should decodeParsedSum', async () => {
+    const decoded = await plasma.methods.decodeParsedSum('0x' + encodedTransferProof).call()
+    const transferProof = new TransferProof(decodedTransferProof)
+
+    const expected = transferProof.args.transfers[0].parsedSum.toString()
+    assert.equal(decoded, expected)
+  })
   it.skip('should properly check individual branch proofs and get implicit bounds', async () => {
     await plasma.methods.submitBlock('0x' + tree.root().hash).send({ value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000 })
     const index = Math.floor(Math.random() * txs.length)
     let proof = tree.getInclusionProof(index)
-    debugger
     const parsedSum = proof[0].sum
     proof.shift()
     let proofString = '0x'
@@ -243,6 +298,5 @@ function genRandomTX (blockNum, numTransfers) {
       randomVals
     // can't have invalid addresses so ignore this partthe 33rd byte is the numTransfers which isn't random--it's 4
   }
-  debugger
   return new BN(blockNum).toString(16, 8) + new BN(numTransfers).toString(16, 2) + randomTransfers
 }
