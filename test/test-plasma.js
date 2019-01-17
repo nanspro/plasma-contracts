@@ -32,14 +32,10 @@ describe.only('Plasma Initialization', () => {
     [
       bytecode, abi, plasma, freshContractSnapshot
     ] = await setup.setupPlasma()
-    // fuzz a random encoding to test decoding with
-    let randomVals = ''
-    for (let i = 0; i < 305; i++) { // 305 because we're doing 4 transfers
-      const randHex = Math.floor(Math.random() * 256)
-      randomVals += new BN(randHex, 10).toString(16, 2)
-    }
-    // the 33rd byte is the numTransfers which isn't random--it's 4
-    randomTXEncoding = randomVals.substr(0, 64) + '04' + randomVals.substr(66)
+    const numTransfers = 4
+    const blockNum = 1
+    randomTXEncoding = genRandomTX(blockNum, numTransfers)
+    debugger
     randomTX = new Transaction(randomTXEncoding)
     randomTXEncoding = '0x' + randomTXEncoding
     randomTransferIndex = Math.floor(Math.random() * 4)
@@ -169,35 +165,30 @@ describe.only('Plasma Initialization', () => {
       new BN(expectedType + expectedStart, 16).toString(),
       new BN(expectedType + expectedEnd, 16).toString()
     ]
-    debugger
     assert.equal(decoded[0], expected[0])
     assert.equal(decoded[1], expected[1])
   })
-
-
-
-
-
-  // it('should properly check individual branch proofs and get implicit bounds', async () => {
-  //   await plasma.methods.submitBlock('0x' + tree.root().hash).send({ value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000 })
-  //   const index = Math.floor(Math.random() * txs.length)
-  //   let proof = tree.getInclusionProof(index)
-  //   const parsedSum = proof[0].sum
-  //   proof.shift()
-  //   let proofString = '0x'
-  //   proof.forEach((element) => { proofString = proofString + element.hash + element.sum.toString(16, 32) })
-  //   const possibleImplicitBounds = await plasma.methods.checkBranchAndGetBounds(
-  //     web3.utils.soliditySha3('0x' + txs[index].encoded),
-  //     '0x' + parsedSum.toString(16, 32),
-  //     index,
-  //     proofString,
-  //     1
-  //   ).call()
-  //   assert.equal(possibleImplicitBounds[0], new BN(txs[index].args.transfer.start))
-  //   assert(new BN(possibleImplicitBounds[1]).gte(new BN(txs[index].args.transfer.end)))
-  // })
+  it.skip('should properly check individual branch proofs and get implicit bounds', async () => {
+    await plasma.methods.submitBlock('0x' + tree.root().hash).send({ value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000 })
+    const index = Math.floor(Math.random() * txs.length)
+    let proof = tree.getInclusionProof(index)
+    debugger
+    const parsedSum = proof[0].sum
+    proof.shift()
+    let proofString = '0x'
+    proof.forEach((element) => { proofString = proofString + element.hash + element.sum.toString(16, 32) })
+    const possibleImplicitBounds = await plasma.methods.checkBranchAndGetBounds(
+      web3.utils.soliditySha3('0x' + txs[index].encoded),
+      '0x' + parsedSum.toString(16, 32),
+      index,
+      proofString,
+      1
+    ).call()
+    assert.equal(possibleImplicitBounds[0], new BN(txs[index].args.transfer.start))
+    assert(new BN(possibleImplicitBounds[1]).gte(new BN(txs[index].args.transfer.end)))
+  })
   // it('should properly check full tx proofs and get transfer & blocknumber', async () => {
-  //   for (let i = 0; i < 100; i++) { let tx, index, proof, parsedSum, proofString; try { 
+  //   for (let i = 0; i < 100; i++) { let tx, index, proof, parsedSum, proofString; try {
   //    index = Math.floor(Math.random() * txs.length)
   //    tx = txs[index]
   //    proof = tree.getInclusionProof(index)
@@ -236,3 +227,22 @@ describe.only('Plasma Initialization', () => {
   //   debugger
   // })
 })
+
+function genRandomTX (blockNum, numTransfers) {
+  let randomTransfers = []
+  for (let i = 0; i < numTransfers; i++) {
+    // fuzz a random encoding to test decoding with
+    let randomVals = ''
+    for (let i = 0; i < 28; i++) { // random start, end, type = 12+12+4 bytes
+      const randHex = Math.floor(Math.random() * 256)
+      randomVals += new BN(randHex, 10).toString(16, 2)
+    }
+    randomTransfers +=
+      web3.eth.accounts.wallet[i].address.slice(2) +
+      web3.eth.accounts.wallet[i + 1].address.slice(2) +
+      randomVals
+    // can't have invalid addresses so ignore this partthe 33rd byte is the numTransfers which isn't random--it's 4
+  }
+  debugger
+  return new BN(blockNum).toString(16, 8) + new BN(numTransfers).toString(16, 2) + randomTransfers
+}
