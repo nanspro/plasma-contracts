@@ -246,7 +246,7 @@ describe('Plasma Smart Contract', () => {
     it('should allow a first deposit and add it to the deposits correctly', async () => {
       const depositSize = 50
       await plasma.methods.submitDeposit().send({ value: depositSize, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
-      const exitableStart = await plasma.methods.exitable(depositSize).call()
+      const exitableStart = await plasma.methods.exitable__start(depositSize).call()
       const depositStart = await plasma.methods.deposits__start(depositSize).call()
       const depositer = await plasma.methods.deposits__depositer(depositSize).call()
       assert.equal(exitableStart, '0')
@@ -257,7 +257,7 @@ describe('Plasma Smart Contract', () => {
       const depositSize = 500
       await plasma.methods.submitDeposit().send({ value: depositSize, from: web3.eth.accounts.wallet[2].address, gas: 4000000 })
       const depositEnd = 550 // 550 hardcoded from above deposit of 50
-      const exitableStart = await plasma.methods.exitable(depositEnd).call()
+      const exitableStart = await plasma.methods.exitable__start(depositEnd).call()
       const depositStart = await plasma.methods.deposits__start(depositEnd).call()
       const depositer = await plasma.methods.deposits__depositer(depositEnd).call()
       assert.equal(exitableStart, '0')
@@ -290,8 +290,8 @@ describe('Plasma Smart Contract', () => {
       await setup.mineNBlocks(CHALLENGE_PERIOD)
       await plasma.methods.finalizeExit(2, 300).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
 
-      const firstExitableStart = await plasma.methods.exitable(100).call()
-      const secondExitableStart = await plasma.methods.exitable(300).call()
+      const firstExitableStart = await plasma.methods.exitable__start(100).call()
+      const secondExitableStart = await plasma.methods.exitable__start(300).call()
       assert.equal(firstExitableStart, '10')
       assert.equal(secondExitableStart, '200')
     })
@@ -299,16 +299,17 @@ describe('Plasma Smart Contract', () => {
       const depositSize = 420
       await plasma.methods.submitDeposit().send({ value: depositSize, from: web3.eth.accounts.wallet[2].address, gas: 4000000 })
       const depositEnd = 970 // total deposits were now 50 + 500 + 420
-      const exitableStart = await plasma.methods.exitable(depositEnd).call()
+      const exitableStart = await plasma.methods.exitable__start(depositEnd).call()
       assert.equal(exitableStart, '550')
     })
   })
-  // it('should allow inclusionChallenges and their response', async () => {
-  //   const index = Math.floor(Math.random() * txs.length)
-  //   const tx = txs[index]
-  //   const start = new BN(tx.args.transfer.start)
-  //   const end = new BN(tx.args.transfer.end)
-  //   const a = await plasma.methods.beginExit(1, start, end, 0).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
-  //   debugger
-  // })
+  describe('Exit games', () => {
+    it('should allow inclusionChallenges and their response', async () => {
+      const index = Math.floor(Math.random() * txs.length)
+      const tx = txs[index]
+      const start = new BN(tx.args.transfer.start)
+      const end = new BN(tx.args.transfer.end)
+      const a = await plasma.methods.beginExit(1, start, end, 0).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
+    })
+  })
 })

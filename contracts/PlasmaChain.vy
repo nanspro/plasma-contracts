@@ -16,7 +16,11 @@ struct deposit:
     start: uint256
     depositer: address
 
-exitable: public(map(uint256, uint256)) # end -> start because it makes for cleaner code
+struct exitableRange:
+    start: uint256
+    isSet: bool
+
+exitable: public(map(uint256, exitableRange)) # end -> start because it makes for cleaner code
 deposits: public(map(uint256, deposit)) # also end -> start for consistency
 totalDeposited: public(uint256)
 
@@ -57,7 +61,8 @@ def setup(_operator: address):
     self.lastPublish = 0
     self.challengeNonce = 0
     self.totalDeposited = 0
-    self.exitable[0] = 0
+    self.exitable[0].start = 0
+    self.exitable[0].isSet = True
     
 @public
 def submitBlock(newBlockHash: bytes32):
@@ -77,12 +82,12 @@ def submitDeposit():
     assert depositAmount > 0
 
     oldEnd: uint256 = self.totalDeposited
-    oldStart: uint256 = self.exitable[oldEnd] # remember, map is end -> start!
+    oldRange: exitableRange = self.exitable[oldEnd] # remember, map is end -> start!
 
     self.totalDeposited += depositAmount # add deposit
     assert self.totalDeposited < MAX_END # make sure we're not at capacity
     clear(self.exitable[oldEnd]) # delete old exitable range
-    self.exitable[self.totalDeposited] = oldStart #make exitable
+    self.exitable[self.totalDeposited] = oldRange #make exitable
 
     self.deposits[self.totalDeposited].start = oldEnd # the range (oldEnd, newTotalDeposited) was deposited by the depositer
     self.deposits[self.totalDeposited].depositer = msg.sender
@@ -105,23 +110,25 @@ def beginExit(bn: uint256, start: uint256, end: uint256) -> uint256:
 @public
 def checkRangeExitable(start: uint256, end: uint256, claimedExitableEnd: uint256):
     assert end <= claimedExitableEnd
-    assert start >= self.exitable[claimedExitableEnd]
+    assert start >= self.exitable[claimedExitableEnd].start
+    assert self.exitable[claimedExitableEnd].isSet
 
 # this function updates the exitable ranges to reflect a newly finalized exit.
 @public # make private once tested!!!!
 def removeFromExitable(start: uint256, end: uint256, exitableEnd: uint256):
-    oldStart: uint256 = self.exitable[exitableEnd]
+    oldStart: uint256 = self.exitable[exitableEnd].start
     #todo fix/check  the case with totally filled exit finalization
     if start != oldStart: # then we have a new exitable region to the left
-        self.exitable[start] = oldStart # new exitable range from oldstart to the start of the exit (which has just become the end of the new exitable range)
+        self.exitable[start].start = oldStart # new exitable range from oldstart to the start of the exit (which has just become the end of the new exitable range)
+        self.exitable[start].isSet = True
     if end != exitableEnd: # then we have leftovers to the right which are exitable
-        self.exitable[exitableEnd] = end # and it starts at the end of the finalized exit!
+        self.exitable[exitableEnd].start = end # and it starts at the end of the finalized exit!
+        self.exitable[exitableEnd].isSet = True
     else: # otherwise, no leftovers on the right, so we can delete the map entry...
         if end != self.totalDeposited: # ...UNLESS it's the rightmost deposited value, which we need to keep (even though it will be "empty", i.e. have start == end,because submitDeposit() uses it to make the new deposit exitable)
             clear(self.exitable[end])
         else: # and if it is the rightmost, 
-            self.exitable[end] = end # start = end but allows for new deposit logic to work
-
+            self.exitable[end].start = end # start = end so won't ever be exitable, but allows for new deposit logic to work
 
 @public
 def finalizeExit(exitID: uint256, exitableEnd: uint256) -> uint256:
