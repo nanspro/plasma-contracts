@@ -281,13 +281,6 @@ def decodeParsedSumBytes(
         len = PARSEDSUM_LEN)
     return parsedSum
 
-@public
-def decodeParsedSum(
-    transferProofEncoding: bytes[1749] 
-) -> uint256:
-    parsedSum: bytes[16] = self.decodeParsedSumBytes(transferProofEncoding)
-    return convert(parsedSum, uint256)
-
 LEAFINDEX_START: constant(int128) = 16
 LEAFINDEX_LEN: constant(int128) = 16
 @public

@@ -212,11 +212,6 @@ describe('Plasma Initialization', () => {
     const expected = '0x' + testTransferProof.args.parsedSum.toString(16, 32)
     assert.equal(decoded, expected)
   })
-  it('should decodeParsedSum', async () => {
-    const decoded = await plasma.methods.decodeParsedSum('0x' + encodedTransferProof).call()
-    const expected = testTransferProof.args.parsedSum.toString()
-    assert.equal(decoded, expected)
-  })
   it('should decodeLeafIndex', async () => {
     const decoded = await plasma.methods.decodeLeafIndex('0x' + encodedTransferProof).call()
 
