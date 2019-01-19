@@ -22,7 +22,7 @@ totalDeposited: public(uint256)
 
 operator: public(address)
 nextPlasmaBlockNumber: public(uint256)
-last_publish: public(uint256) # ethereum block number of most recent plasma block
+lastPublish: public(uint256) # ethereum block number of most recent plasma block
 blockHashes: public(map(uint256, bytes32))
 
 exits: public(map(uint256, Exit))
@@ -54,7 +54,7 @@ def __init__():
     self.operator = msg.sender
     self.nextPlasmaBlockNumber = 0
     self.exitNonce = 0
-    self.last_publish = 0
+    self.lastPublish = 0
     self.challengeNonce = 0
     self.totalDeposited = 0
     self.exitable[0] = 0
@@ -62,11 +62,11 @@ def __init__():
 @public
 def submitBlock(newBlockHash: bytes32):
     assert msg.sender == self.operator
-    assert block.number >= self.last_publish + PLASMA_BLOCK_INTERVAL
+    assert block.number >= self.lastPublish + PLASMA_BLOCK_INTERVAL
 
     self.blockHashes[self.nextPlasmaBlockNumber] = newBlockHash
     self.nextPlasmaBlockNumber += 1
-    self.last_publish = block.number
+    self.lastPublish = block.number
 
 ### BEGIN DEPOSITS AND EXITS SECTION ###
 
@@ -154,10 +154,6 @@ def finalizeExit(exitID: uint256, exitableEnd: uint256) -> uint256:
 # Currently we take MAX_TRANSFERS = 4, so the max TX encoding bytes is:
 # 4 + 1 + 4 * 68 = 277
 
-# Decoding constants used by multiple functions below:
-FIRST_TRANSFER_START: constant(int128) = 5 # 4 Byte blockNum + 1 byte numTransfers
-TOTAL_TRANSFER_SIZE: constant(int128) = 68
-
 @public
 def getLeafHash(transactionEncoding: bytes[277]) -> bytes32:
     return sha3(transactionEncoding)
@@ -204,7 +200,6 @@ SENDER_START: constant(int128) = 0
 SENDER_LEN: constant(int128) = 20
 @public
 def decodeSender(
-    index: int128,
     transferEncoding: bytes[68]
 ) -> address:
     addr: bytes[20] = slice(transferEncoding,
@@ -216,7 +211,6 @@ RECIPIENT_START: constant(int128) = 20
 RECIPIENT_LEN: constant(int128) = 20
 @public
 def decodeRecipient(
-    index: int128,
     transferEncoding: bytes[68]
 ) -> address:
     addr: bytes[20] = slice(transferEncoding,
@@ -228,7 +222,6 @@ TR_TOKEN_START: constant(int128) = 40
 TR_TOKEN_LEN: constant(int128) = 4
 @public
 def decodeTokenTypeBytes(
-    index: int128,
     transferEncoding: bytes[68]
 ) -> bytes[4]:
     tokenType: bytes[4] = slice(transferEncoding, 
@@ -238,11 +231,10 @@ def decodeTokenTypeBytes(
 
 @public
 def decodeTokenType(
-    index: int128,
     transferEncoding: bytes[68]
 ) -> uint256:
     return convert(
-        self.decodeTokenTypeBytes(index, transferEncoding), 
+        self.decodeTokenTypeBytes(transferEncoding), 
         uint256
     )
 
@@ -252,10 +244,9 @@ TR_END_START: constant(int128) = 56
 TR_END_LEN: constant(int128) = 12
 @public
 def decodeTransferRange(
-    index: int128,
     transferEncoding: bytes[68]
 ) -> (uint256, uint256): # start, end
-    tokenType: bytes[4] = self.decodeTokenTypeBytes(index, transferEncoding)
+    tokenType: bytes[4] = self.decodeTokenTypeBytes(transferEncoding)
     untypedStart: bytes[12] = slice(transferEncoding,
         start = TR_START_START,
         len = TR_START_LEN)
@@ -342,13 +333,13 @@ def decodeSignature(
         convert(sigS, bytes32)
     )
 
-NUMNODES_START: constant(int128) = 97
+NUMPROOFNODES_START: constant(int128) = 97
 NUMPROOFNODES_LEN: constant(int128) = 1
 @public
-def decodeNumInclusionProofNodes(transferProofEncoding: bytes[1749]) -> int128:
+def decodeNumInclusionProofNodesFromTRProof(transferProof: bytes[1749]) -> int128:
     numNodes: bytes[1] = slice(
-        transferProofEncoding,
-        start = NUMNODES_START,
+        transferProof,
+        start = NUMPROOFNODES_START,
         len = NUMPROOFNODES_LEN
     )
     return convert(numNodes, int128)
@@ -366,6 +357,18 @@ def decodeIthInclusionProofNode(
 
 ### BEGIN TRANSACTION PROOF DECODING SECTION ###
 
+# The smart contract assumes the number of nodes in every TRProof are equal.
+FIRST_TRANSFERPROOF_START: constant(int128) = 1
+@public
+def decodeNumInclusionProofNodesFromTXProof(transactionProof: bytes[1749]) -> int128:
+    firstTransferProof: bytes[1749] = slice(
+        transactionProof,
+        start = FIRST_TRANSFERPROOF_START,
+        len = NUMPROOFNODES_START + 1 # + 1 so we include the numNodes
+    )
+    return self.decodeNumInclusionProofNodesFromTRProof(firstTransferProof)
+
+
 NUMTRPROOFS_START: constant(int128) = 0
 NUMTRPROOFS_LEN: constant(int128) = 1
 @public
@@ -379,7 +382,6 @@ def decodeNumTransactionProofs(
     )
     return convert(numInclusionProofs, int128)
 
-FIRST_TRANSFERPROOF_START: constant(int128) = 1
 @public
 def decodeIthTransferProofWithNumNodes(
     index: int128,
@@ -405,9 +407,9 @@ def checkTransferProofAndGetBounds(
     leafHash: bytes32,
     blockNum: uint256,
     transferProof: bytes[1749]
-) -> (uint256, uint256):
+) -> (uint256, uint256): # implicitstart, implicitEnd
     parsedSum: bytes[16] = self.decodeParsedSumBytes(transferProof)
-    numProofNodes: int128 = self.decodeNumInclusionProofNodes(transferProof)
+    numProofNodes: int128 = self.decodeNumInclusionProofNodesFromTRProof(transferProof)
     leafIndex: int128 = self.decodeLeafIndex(transferProof)
 
     computedNode: bytes[48] = concat(leafHash, parsedSum)
@@ -441,75 +443,84 @@ def checkTransferProofAndGetBounds(
     assert convert(rootHash, bytes32) == self.blockHashes[blockNum]
     return (leftSum, rootSum - rightSum)
 
-#COINID_BYTES: constant(int128) = 16
-#PROOF_MAX_LENGTH: constant(uint256) = 384 # 384 = TREENODE_LEN (48) * MAX_TREE_DEPTH (8) 
-#ENCODING_LENGTH_PER_TRANSFER: constant(int128) = 165
-#@public #todo make private once tested
-#def checkTXValidityAndGetTransfer(
-#        transferIndex: int128,
-#        transactionEncoding: bytes[277], # this will eventually be MAX_TRANSFERS * (SIG_BYTES + TRANSFER_BYTES) + small constant for encoding blockNumber and numTransfers
-#        parsedSums: bytes[64],  #COINID_BYTES * MAX_TRANSFERS (4)
-#        leafIndices: bytes[4], #MAX_TRANSFERS * MAX_TREE_DEPTH / 8
-#        proofs: bytes[1536] #TREENODE_LEN (48) * MAX_TREE_DEPTH (8) * MAX_TRANSFERS (4)
-#    ) -> (
-#        address, # transfer.to
-#        address, # transfer.from
-#        uint256, # transfer.start
-#        uint256, # transfer.end
-#        uint256 # transaction plasmaBlockNumber
-#    ):
-#    leafHash: bytes32 = self.getLeafHash(transactionEncoding)
-#    plasmaBlockNumber: uint256 = self.decodeBlockNumber(transactionEncoding)
+COINID_BYTES: constant(int128) = 16
+PROOF_MAX_LENGTH: constant(uint256) = 384 # 384 = TREENODE_LEN (48) * MAX_TREE_DEPTH (8) 
+ENCODING_LENGTH_PER_TRANSFER: constant(int128) = 165
+@public
+def checkTXValidityAndGetTransfer(
+        transactionEncoding: bytes[277],
+        transactionProofEncoding: bytes[1749],
+        transferIndex: int128
+    ) -> (
+        address, # transfer.to
+        address, # transfer.from
+        uint256, # transfer.start
+        uint256, # transfer.end
+        uint256 # transaction plasmaBlockNumber
+    ):
+    leafHash: bytes32 = self.getLeafHash(transactionEncoding)
+    plasmaBlockNumber: uint256 = self.decodeBlockNumber(transactionEncoding)
 
-#    requestedTransferStart: uint256 # these will be the ones at the trIndex we are being asked about by the exit game
-#    requestedTransferEnd: uint256
-#    requestedTransferTo: address
-#    requestedTransferFrom: address
-#    numTransfers: int128 = len(transactionEncoding) / ENCODING_LENGTH_PER_TRANSFER
-#    proofSize: int128 = len(proofs) / numTransfers
-#    for i in range(MAX_TRANSFERS):
-#        if i == numTransfers: #loop for max possible transfers, but break so we don't go past
-#            break
 
-#        parsedSum: bytes[16] = slice(parsedSums, start = i * COINID_BYTES, len = COINID_BYTES) # COINID_BYTES = 16
-#        leafIndex: bytes[1] = slice(leafIndices, start = i * MAX_TREE_DEPTH / 8, len = MAX_TREE_DEPTH / 8) # num bytes is MAX_TREE_DEPTH / 8
-#        proof: bytes[1536] =  slice(proofs, start = i * proofSize, len = proofSize) # IN PRACTICE, proof will always be much smaller, but type casting in vyper prevents it from compiling at lower vals
+    numTransfers: int128 = convert(self.decodeNumTransfers(transactionEncoding), int128)
+    numInclusionProofNodes: int128 = self.decodeNumInclusionProofNodesFromTXProof(transactionProofEncoding)
 
-#        implicitStart: uint256 = 0
-#        implicitEnd: uint256 = 10000
-#        (implicitStart, implicitEnd) = self.checkBranchAndGetBounds(
-#            leafHash,
-#            parsedSum,
-#            convert(leafIndex, int128),
-#            proof,
-#            plasmaBlockNumber
-#        )
-#
-#        transferStart: uint256
-#        transferEnd: uint256
-#        (transferStart, transferEnd) = self.decodeIthTransferRange(i, transactionEncoding)
+    requestedTransferStart: uint256 # these will be the ones at the trIndex we are being asked about by the exit game
+    requestedTransferEnd: uint256
+    requestedTransferTo: address
+    requestedTransferFrom: address
+    for i in range(MAX_TRANSFERS):
+        if i == numTransfers: #loop for max possible transfers, but break so we don't go past
+            break
+        transferEncoding: bytes[68] = self.decodeIthTransfer(i, transactionEncoding)
+        
+        transferProof: bytes[1749] = self.decodeIthTransferProofWithNumNodes(
+            i,
+            numInclusionProofNodes,
+            transactionProofEncoding
+        )
 
-#        assert implicitStart <= transferStart
-#        assert transferStart < transferEnd
-#        assert transferEnd <= implicitEnd
-#        assert implicitEnd <= MAX_END
+        implicitStart: uint256
+        implicitEnd: uint256
 
-#        # signature: bytes[1] = self.decodeIthSignature(i, transactionEncoding)
-#        sender: address = self.decodeIthSender(i, transactionEncoding)
-#        # TODO: add signature check here!
-#
-#        if i == transferIndex:
-#            requestedTransferTo = self.decodeIthRecipient(i, transactionEncoding)
-#            requestedTransferFrom = sender
-#            requestedTransferStart = transferStart
-#            requestedTransferEnd = transferEnd
-#    return (
-#        requestedTransferTo,
-#        requestedTransferFrom,
-#        requestedTransferStart,
-#        requestedTransferEnd,
-#        plasmaBlockNumber
-#    )
+
+        (implicitStart, implicitEnd) = self.checkTransferProofAndGetBounds(
+            leafHash,
+            plasmaBlockNumber,
+            transferProof
+        )
+
+        transferStart: uint256
+        transferEnd: uint256
+
+        (transferStart, transferEnd) = self.decodeTransferRange(transferEncoding)
+
+        assert implicitStart <= transferStart
+        assert transferStart < transferEnd
+        assert transferEnd <= implicitEnd
+        assert implicitEnd <= MAX_END
+
+        v: bytes[1] # v
+        r: bytes32 # r
+        s: bytes32 # s
+        (v, r, s) = self.decodeSignature(transferProof)
+        sender: address = self.decodeSender(transferEncoding)
+        # TODO: add signature check here!
+
+        if i == transferIndex:
+            requestedTransferTo = self.decodeRecipient(transferEncoding)
+            requestedTransferFrom = sender
+            requestedTransferStart = transferStart
+            requestedTransferEnd = transferEnd
+
+
+    return (
+        requestedTransferFrom,
+        requestedTransferTo,
+        requestedTransferStart,
+        requestedTransferEnd,
+        plasmaBlockNumber
+    )
 
 @public
 def challengeInclusion(exitID: uint256) -> uint256:
