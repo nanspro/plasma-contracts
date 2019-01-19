@@ -19,271 +19,289 @@ const Transaction = models.Transaction
 const TransferProof = models.TransferProof
 const TransactionProof = models.TransactionProof
 const genSequentialTXs = plasmaUtils.utils.getSequentialTxs
+const genRandomTX = plasmaUtils.utils.genRandomTX
 const setup = require('./setup-plasma')
 const web3 = setup.web3
 genSequentialTXs
 const CHALLENGE_PERIOD = 20
 
-describe('Plasma Initialization', () => {
-  let bytecode, abi, plasma, freshContractSnapshot
-  let randomTXEncoding, randomTX, randomTransferIndex, randomTransferEncoding
-  let TXIndex, txs, tx, tree
-
+describe('Plasma Smart Contract', () => {
+  let bytecode, abi, plasma, operatorSetup, freshContractSnapshot
   // BEGIN SETUP
-
   before(async () => {
     // setup ganache, deploy, etc.
     [
-      bytecode, abi, plasma, freshContractSnapshot
+      bytecode, abi, plasma, operatorSetup, freshContractSnapshot
     ] = await setup.setupPlasma()
-    const numTransfers = 4
-    const blockNum = 1
-    randomTXEncoding = genRandomTX(blockNum, numTransfers)
-    randomTX = new Transaction(randomTXEncoding)
-    randomTXEncoding = '0x' + randomTXEncoding
-    randomTransferIndex = Math.floor(Math.random() * 4)
-    randomTransferEncoding = '0x' + randomTX.transfers[randomTransferIndex].encoded.toLowerCase()
-
-    // tree for testing branch checking
-    TXIndex = 0
-    txs = genSequentialTXs(2)
-    tx = txs[TXIndex]
-    tree = new PlasmaMerkleSumTree(txs)
   })
-  it('Should compile the vyper contract without errors', async () => {
-    expect(abi).to.exist
-    expect(bytecode).to.exist
-    expect(plasma).to.exist
-    expect(web3).to.exist
+  describe('Deployment', () => {
+    it('Should have compiled the vyper contract without errors', async () => {
+      expect(abi).to.exist
+      expect(bytecode).to.exist
+      expect(plasma).to.exist
+      expect(web3).to.exist
+    })
+    it('Should have setup() the contract for without errors', async () => {
+      expect(operatorSetup).to.exist
+    })
   })
 
   // BEGIN OPERATOR SECTION
-
-  it('should allow a block to be published by the operator', async () => {
-    const dummyBlockHash = '0x000000000000000000000000000000000000000000000000000000000000000'
-    await setup.mineNBlocks(10) // blocktime is 10
-    await plasma.methods.submitBlock(dummyBlockHash).send({ value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000 }).catch((error) => { console.log('send callback failed: ', error) })
-  })
-
-  // BEGIN DEPOSITS AND EXITS SECTION
-
-  it('should allow a first deposit and add it to the deposits correctly', async () => {
-    const depositSize = 50
-    await plasma.methods.submitDeposit().send({ value: depositSize, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
-    const exitableStart = await plasma.methods.exitable(depositSize).call()
-    const depositStart = await plasma.methods.deposits__start(depositSize).call()
-    const depositer = await plasma.methods.deposits__depositer(depositSize).call()
-    assert.equal(exitableStart, '0')
-    assert.equal(depositStart, '0')
-    assert.equal(depositer, web3.eth.accounts.wallet[1].address)
-  })
-  it('should allow a second deposit and add it to the deposits correctly', async () => {
-    const depositSize = 500
-    await plasma.methods.submitDeposit().send({ value: depositSize, from: web3.eth.accounts.wallet[2].address, gas: 4000000 })
-    const depositEnd = 550 // 550 hardcoded from above deposit of 50
-    const exitableStart = await plasma.methods.exitable(depositEnd).call()
-    const depositStart = await plasma.methods.deposits__start(depositEnd).call()
-    const depositer = await plasma.methods.deposits__depositer(depositEnd).call()
-    assert.equal(exitableStart, '0')
-    assert.equal(depositStart, '50')
-    assert.equal(depositer, web3.eth.accounts.wallet[2].address)
-  })
-  it('should allow that users `beginExit`s', async () => {
-    const plasmaBlock = '0'
-    const exitStart = '0'
-    const exitEnd = '10'
-    await plasma.methods.beginExit(plasmaBlock, exitStart, exitEnd).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
-    const exitID = 0 // hardcode since this is all a deterministic test
-    const exiter = await plasma.methods.exits__exiter(exitID).call()
-    assert.equal(exiter, web3.eth.accounts.wallet[1].address)
-  })
-  it('should properly finalize leftmost, rightmost, and middle exits', async () => {
-    // this test finalizes exits in order of left, right, middle.
-    // LEFT EXIT: (0, 10) -- beginExit() already happened in the last test
-    await setup.mineNBlocks(CHALLENGE_PERIOD) // finalizing exits in order of left, right, middle for testing variety
-    await plasma.methods.finalizeExit(0, 550).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
-
-    // now do the end: exiting 300, 550 -> exitID 1
-    const plasmaBlock = '0'
-    await plasma.methods.beginExit(plasmaBlock, 300, 550).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
-    await setup.mineNBlocks(CHALLENGE_PERIOD)
-    await plasma.methods.finalizeExit(1, 550).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
-
-    // now do the middle: 100,200 -> exitID 2
-    await plasma.methods.beginExit(plasmaBlock, 100, 200).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
-    await setup.mineNBlocks(CHALLENGE_PERIOD)
-    await plasma.methods.finalizeExit(2, 300).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
-
-    const firstExitableStart = await plasma.methods.exitable(100).call()
-    const secondExitableStart = await plasma.methods.exitable(300).call()
-    assert.equal(firstExitableStart, '10')
-    assert.equal(secondExitableStart, '200')
-  })
-  it('should properly process a new deposit after the rightmost coin was exited', async () => {
-    const depositSize = 420
-    await plasma.methods.submitDeposit().send({ value: depositSize, from: web3.eth.accounts.wallet[2].address, gas: 4000000 })
-    const depositEnd = 970 // total deposits were now 50 + 500 + 420
-    const exitableStart = await plasma.methods.exitable(depositEnd).call()
-    assert.equal(exitableStart, '550')
+  describe('Operator Usage', () => {
+    it('should allow a block to be published by the operator', async () => {
+      const dummyBlockHash = '0x000000000000000000000000000000000000000000000000000000000000000'
+      await setup.mineNBlocks(10) // blocktime is 10
+      await plasma.methods.submitBlock(dummyBlockHash).send({ value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000 }).catch((error) => { console.log('send callback failed: ', error) })
+    })
   })
 
   // BEGIN DECODING SECTION
-
-  it('should getLeafHash of an encoded transaction', async () => {
-    const possibleHash = await plasma.methods.getLeafHash(randomTXEncoding).call()
-    assert.equal(possibleHash, randomTX.hash)
-  })
-  it('should decodeBlockNumber from a tx', async () => {
-    const decoded = await plasma.methods.decodeBlockNumber(randomTXEncoding).call()
-    const expected = new BN(randomTX.args.block).toString()
-    assert.equal(decoded, expected)
-  })
-  it('should decodeNumTransfers from a tx', async () => {
-    const decoded = await plasma.methods.decodeNumTransfers(randomTXEncoding).call()
-    const expected = new BN(randomTX.args.transfers.length).toString()
-    assert.equal(decoded, expected)
-  })
-  it('should decode the ith transfer', async () => {
-    const index = 0
-    const decoded = await plasma.methods.decodeIthTransfer(index, randomTXEncoding).call()
-    const transfer = randomTX.transfers[index]
-    const expected = '0x' + transfer.encoded.toLowerCase()
-    assert.equal(decoded, expected)
-  })
-  it('should decode a transfer sender', async () => {
-    const decoded = await plasma.methods.decodeSender(randomTransferEncoding).call()
-    const expected = randomTX.args.transfers[randomTransferIndex].sender.toLowerCase()
-    assert.equal(decoded.toLowerCase(), expected)
-  })
-  it('should decode a transfer recipient', async () => {
-    const decoded = await plasma.methods.decodeRecipient(randomTransferEncoding).call()
-    const expected = randomTX.args.transfers[randomTransferIndex].recipient.toLowerCase()
-    assert.equal(decoded.toLowerCase(), expected)
-  })
-  it('should decode a token type bytes', async () => {
-    const decoded = await plasma.methods.decodeTokenTypeBytes(randomTransferEncoding).call()
-    const expected = '0x' + randomTX.args.transfers[randomTransferIndex].token.toString(16, 8)
-    assert.equal(decoded, expected)
-  })
-  it('should decode a token type as uint', async () => {
-    const decoded = await plasma.methods.decodeTokenType(randomTransferEncoding).call()
-    const expected = randomTX.args.transfers[randomTransferIndex].token.toString()
-    assert.equal(decoded, expected)
-  })
-  it('should decode a transfer range', async () => {
-    const decoded = await plasma.methods.decodeTransferRange(randomTransferEncoding).call()
-    const expectedType = randomTX.args.transfers[randomTransferIndex].token.toString(16, 8)
-    const expectedStart = randomTX.args.transfers[randomTransferIndex].start.toString(16, 12)
-    const expectedEnd = randomTX.args.transfers[randomTransferIndex].end.toString(16, 12)
-    const expected = [
-      new BN(expectedType + expectedStart, 16).toString(),
-      new BN(expectedType + expectedEnd, 16).toString()
-    ]
-    assert.equal(decoded[0], expected[0])
-    assert.equal(decoded[1], expected[1])
-  })
-
-  const encodedSignature = '1bd693b532a80fed6392b428604171fb32fdbf953728a3a7ecc7d4062b1652c04224e9c602ac800b983b035700a14b23f78a253ab762deab5dc27e3555a750b354'
-  const decodedSignature = {
-    v: '1b',
-    r: 'd693b532a80fed6392b428604171fb32fdbf953728a3a7ecc7d4062b1652c042',
-    s: '24e9c602ac800b983b035700a14b23f78a253ab762deab5dc27e3555a750b354'
-  }
-  const encodedTransferProof = '00000000000000000000000000000003' + '00000000000000000000000000000004' + encodedSignature + '01' + '563f225cdc192264a90e7e4b402815479c71a16f1593afa4fc6323e18583472affffffffffffffffffffffffffffffff'
-  const decodedTransferProof = {
-    parsedSum: new BN('3', 'hex'),
-    leafIndex: new BN('4', 'hex'),
-    inclusionProof: [
-      '563f225cdc192264a90e7e4b402815479c71a16f1593afa4fc6323e18583472affffffffffffffffffffffffffffffff'
-    ],
-    signature: decodedSignature
-  }
-  const testTransferProof = new TransferProof(decodedTransferProof)
-  const encodedTransactionProof = '01' + encodedTransferProof
-  const decodedTransactionProof = {
-    transferProofs: [
-      decodedTransferProof
-    ]
-  }
-  const transactionProof = new TransactionProof(decodedTransactionProof)
-
-  it('should decodeParsedSumBytes', async () => {
-    const decoded = await plasma.methods.decodeParsedSumBytes('0x' + encodedTransferProof).call()
-    const expected = '0x' + testTransferProof.args.parsedSum.toString(16, 32)
-    assert.equal(decoded, expected)
-  })
-  it('should decodeLeafIndex', async () => {
-    const decoded = await plasma.methods.decodeLeafIndex('0x' + encodedTransferProof).call()
-
-    const expected = testTransferProof.args.leafIndex.toString()
-    assert.equal(decoded, expected)
-  })
-  it('should decodeSignature', async () => {
-    const decoded = await plasma.methods.decodeSignature('0x' + encodedTransferProof).call()
-    const expected = [
-      '0x' + new BN(testTransferProof.args.signature.v).toString(16, 2),
-      '0x' + new BN(testTransferProof.args.signature.r).toString(16, 64),
-      '0x' + new BN(testTransferProof.args.signature.s).toString(16, 64)
-    ]
-    assert.equal(decoded[0], expected[0])
-    assert.equal(decoded[1], expected[1])
-    assert.equal(decoded[2], expected[2])
-  })
-  it('should decodeIthInclusionProofNode', async () => {
-    const decoded = await plasma.methods.decodeIthInclusionProofNode(0, '0x' + encodedTransferProof).call()
-    const expected = '0x' + new BN(testTransferProof.args.inclusionProof[0]).toString(16)
-    assert.equal(decoded, expected)
-  })
-  it('should decodeNumTransactionProofs', async () => {
-    const decoded = await plasma.methods.decodeNumTransactionProofs('0x' + encodedTransactionProof).call()
-    const expected = new BN(transactionProof.args.transferProofs.length).toString()
-    assert.equal(decoded, expected)
-  })
-  it('should decodeNumInclusionProofNodesFromTRProof', async () => {
-    const decoded = await plasma.methods.decodeNumInclusionProofNodesFromTRProof('0x' + encodedTransferProof).call()
-    const expected = testTransferProof.args.inclusionProof.length
-    assert.equal(decoded, expected)
-  })
-  it('should decodeNumInclusionProofNodesFromTXProof', async () => {
-    const decoded = await plasma.methods.decodeNumInclusionProofNodesFromTXProof('0x' + encodedTransactionProof).call()
-    const expected = testTransferProof.args.inclusionProof.length
-    assert.equal(decoded, expected)
-  })
-  it('should decodeIthTransferProofWithNumNodes', async () => {
-    const decoded = await plasma.methods.decodeIthTransferProofWithNumNodes(0, 1, '0x' + encodedTransactionProof).call()
-    const expected = '0x' + encodedTransferProof
-    assert.equal(decoded, expected)
+  describe('Serialization Decoding', () => {
+    let randomTXEncoding, randomTX, randomTransferIndex, randomTransferEncoding
+    let encodedSignature, decodedSignature, encodedTransferProof, decodedTransferProof, testTransferProof, encodedTransactionProof, decodedTransactionProof, transactionProof
+    before(async () => {
+      const numTransfers = 4
+      const blockNum = 1
+      randomTXEncoding = genRandomTX(blockNum, web3.eth.accounts.wallet[3].address, web3.eth.accounts.wallet[3].address, numTransfers)
+      randomTX = new Transaction(randomTXEncoding)
+      randomTXEncoding = '0x' + randomTXEncoding
+      randomTransferIndex = Math.floor(Math.random() * 4)
+      randomTransferEncoding = '0x' + randomTX.transfers[randomTransferIndex].encoded.toLowerCase()
+      encodedSignature = '1bd693b532a80fed6392b428604171fb32fdbf953728a3a7ecc7d4062b1652c04224e9c602ac800b983b035700a14b23f78a253ab762deab5dc27e3555a750b354'
+      decodedSignature = {
+        v: '1b',
+        r: 'd693b532a80fed6392b428604171fb32fdbf953728a3a7ecc7d4062b1652c042',
+        s: '24e9c602ac800b983b035700a14b23f78a253ab762deab5dc27e3555a750b354'
+      }
+      encodedTransferProof = '00000000000000000000000000000003' + '00000000000000000000000000000004' + encodedSignature + '01' + '563f225cdc192264a90e7e4b402815479c71a16f1593afa4fc6323e18583472affffffffffffffffffffffffffffffff'
+      decodedTransferProof = {
+        parsedSum: new BN('3', 'hex'),
+        leafIndex: new BN('4', 'hex'),
+        inclusionProof: [
+          '563f225cdc192264a90e7e4b402815479c71a16f1593afa4fc6323e18583472affffffffffffffffffffffffffffffff'
+        ],
+        signature: decodedSignature
+      }
+      testTransferProof = new TransferProof(decodedTransferProof)
+      encodedTransactionProof = '01' + encodedTransferProof
+      decodedTransactionProof = {
+        transferProofs: [
+          decodedTransferProof
+        ]
+      }
+      transactionProof = new TransactionProof(decodedTransactionProof)
+    })
+    describe('Transfer Decoding', () => {
+      it('should decode a transfer sender', async () => {
+        const decoded = await plasma.methods.decodeSender(randomTransferEncoding).call()
+        const expected = randomTX.args.transfers[randomTransferIndex].sender.toLowerCase()
+        assert.equal(decoded.toLowerCase(), expected)
+      })
+      it('should decode a transfer recipient', async () => {
+        const decoded = await plasma.methods.decodeRecipient(randomTransferEncoding).call()
+        const expected = randomTX.args.transfers[randomTransferIndex].recipient.toLowerCase()
+        assert.equal(decoded.toLowerCase(), expected)
+      })
+      it('should decode a token type bytes', async () => {
+        const decoded = await plasma.methods.decodeTokenTypeBytes(randomTransferEncoding).call()
+        const expected = '0x' + randomTX.args.transfers[randomTransferIndex].token.toString(16, 8)
+        assert.equal(decoded, expected)
+      })
+      it('should decode a token type as uint', async () => {
+        const decoded = await plasma.methods.decodeTokenType(randomTransferEncoding).call()
+        const expected = randomTX.args.transfers[randomTransferIndex].token.toString()
+        assert.equal(decoded, expected)
+      })
+      it('should decode a transfer range', async () => {
+        const decoded = await plasma.methods.decodeTransferRange(randomTransferEncoding).call()
+        const expectedType = randomTX.args.transfers[randomTransferIndex].token.toString(16, 8)
+        const expectedStart = randomTX.args.transfers[randomTransferIndex].start.toString(16, 12)
+        const expectedEnd = randomTX.args.transfers[randomTransferIndex].end.toString(16, 12)
+        const expected = [
+          new BN(expectedType + expectedStart, 16).toString(),
+          new BN(expectedType + expectedEnd, 16).toString()
+        ]
+        assert.equal(decoded[0], expected[0])
+        assert.equal(decoded[1], expected[1])
+      })
+    })
+    describe('Transaction Decoding', () => {
+      it('should getLeafHash of an encoded transaction', async () => {
+        const possibleHash = await plasma.methods.getLeafHash(randomTXEncoding).call()
+        assert.equal(possibleHash, randomTX.hash)
+      })
+      it('should decodeBlockNumber from a tx', async () => {
+        const decoded = await plasma.methods.decodeBlockNumber(randomTXEncoding).call()
+        const expected = new BN(randomTX.args.block).toString()
+        assert.equal(decoded, expected)
+      })
+      it('should decodeNumTransfers from a tx', async () => {
+        const decoded = await plasma.methods.decodeNumTransfers(randomTXEncoding).call()
+        const expected = new BN(randomTX.args.transfers.length).toString()
+        assert.equal(decoded, expected)
+      })
+      it('should decode the ith transfer', async () => {
+        const index = 0
+        const decoded = await plasma.methods.decodeIthTransfer(index, randomTXEncoding).call()
+        const transfer = randomTX.transfers[index]
+        const expected = '0x' + transfer.encoded.toLowerCase()
+        assert.equal(decoded, expected)
+      })
+    })
+    describe('Transfer Proof Decoding', () => {
+      it('should decodeParsedSumBytes', async () => {
+        const decoded = await plasma.methods.decodeParsedSumBytes('0x' + encodedTransferProof).call()
+        const expected = '0x' + testTransferProof.args.parsedSum.toString(16, 32)
+        assert.equal(decoded, expected)
+      })
+      it('should decodeLeafIndex', async () => {
+        const decoded = await plasma.methods.decodeLeafIndex('0x' + encodedTransferProof).call()
+  
+        const expected = testTransferProof.args.leafIndex.toString()
+        assert.equal(decoded, expected)
+      })
+      it('should decodeSignature', async () => {
+        const decoded = await plasma.methods.decodeSignature('0x' + encodedTransferProof).call()
+        const expected = [
+          '0x' + new BN(testTransferProof.args.signature.v).toString(16, 2),
+          '0x' + new BN(testTransferProof.args.signature.r).toString(16, 64),
+          '0x' + new BN(testTransferProof.args.signature.s).toString(16, 64)
+        ]
+        assert.equal(decoded[0], expected[0])
+        assert.equal(decoded[1], expected[1])
+        assert.equal(decoded[2], expected[2])
+      })
+      it('should decodeNumInclusionProofNodesFromTRProof', async () => {
+        const decoded = await plasma.methods.decodeNumInclusionProofNodesFromTRProof('0x' + encodedTransferProof).call()
+        const expected = testTransferProof.args.inclusionProof.length
+        assert.equal(decoded, expected)
+      })
+      it('should decodeIthInclusionProofNode', async () => {
+        const decoded = await plasma.methods.decodeIthInclusionProofNode(0, '0x' + encodedTransferProof).call()
+        const expected = '0x' + new BN(testTransferProof.args.inclusionProof[0]).toString(16)
+        assert.equal(decoded, expected)
+      })
+    })
+    describe('Transaction Proof Decoding', () => {
+      it('should decodeNumTransactionProofs', async () => {
+        const decoded = await plasma.methods.decodeNumTransactionProofs('0x' + encodedTransactionProof).call()
+        const expected = new BN(transactionProof.args.transferProofs.length).toString()
+        assert.equal(decoded, expected)
+      })
+  
+      it('should decodeNumInclusionProofNodesFromTXProof', async () => {
+        const decoded = await plasma.methods.decodeNumInclusionProofNodesFromTXProof('0x' + encodedTransactionProof).call()
+        const expected = testTransferProof.args.inclusionProof.length
+        assert.equal(decoded, expected)
+      })
+      it('should decodeIthTransferProofWithNumNodes', async () => {
+        const decoded = await plasma.methods.decodeIthTransferProofWithNumNodes(0, 1, '0x' + encodedTransactionProof).call()
+        const expected = '0x' + encodedTransferProof
+        assert.equal(decoded, expected)
+      })
+    })
   })
 
   // BEGIN PROOF CHECKING SECTION
-
-  it('should checkTransferProofAndGetBounds', async () => {
-    await setup.revertToChainSnapshot(freshContractSnapshot)
-    await plasma.methods.submitBlock('0x' + tree.root().hash).send({ value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000 })
-    const possibleImplicitBounds = await plasma.methods.checkTransferProofAndGetBounds(
-      web3.utils.soliditySha3('0x' + tx.encoded),
-      0,
-      '0x' + tree.getTransferProof(0).encoded
-    ).call()
-    assert.equal(possibleImplicitBounds[0], new BN(0))
-    assert(new BN(possibleImplicitBounds[1]).gte(new BN(txs[0].args.transfers[0].end)))
+  describe('Proof Checking', () => {
+    let TXIndex, txs, tx, tree
+    before(async () => {
+      // tree for testing branch checking
+      TXIndex = 0
+      txs = genSequentialTXs(2)
+      tx = txs[TXIndex]
+      tree = new PlasmaMerkleSumTree(txs)
+    })
+    it('should checkTransferProofAndGetBounds', async () => {
+      await setup.revertToChainSnapshot(freshContractSnapshot)
+      await plasma.methods.submitBlock('0x' + tree.root().hash).send({ value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000 })
+      const possibleImplicitBounds = await plasma.methods.checkTransferProofAndGetBounds(
+        web3.utils.soliditySha3('0x' + tx.encoded),
+        0,
+        '0x' + tree.getTransferProof(0).encoded
+      ).call()
+      assert.equal(possibleImplicitBounds[0], new BN(0))
+      assert(new BN(possibleImplicitBounds[1]).gte(new BN(txs[0].args.transfers[0].end)))
+    })
+    it('should checkTXValidityAndGetTransfer', async () => {
+      const requestedTransfer = await plasma.methods.checkTXValidityAndGetTransfer(
+        '0x' + tx.encoded,
+        '0x' + tree.getTransactionProof(tx).encoded,
+        0
+      ).call()
+      const expectedSender = tx.transfers[0].args.sender
+      const expectedRecipient = tx.transfers[0].args.recipient
+      const expectedStart = tx.transfers[0].args.start.toString()
+      const expectedEnd = tx.transfers[0].args.end.toString()
+      const expectedBlockNum = tx.args.block.toString()
+      assert.equal(requestedTransfer[0].toLowerCase(), expectedSender)
+      assert.equal(requestedTransfer[1].toLowerCase(), expectedRecipient)
+      assert.equal(requestedTransfer[2], expectedStart)
+      assert.equal(requestedTransfer[3], expectedEnd)
+      assert.equal(requestedTransfer[4], expectedBlockNum)
+    })
   })
-  it('should checkTXValidityAndGetTransfer', async () => {
-    const requestedTransfer = await plasma.methods.checkTXValidityAndGetTransfer(
-      '0x' + tx.encoded,
-      '0x' + tree.getTransactionProof(tx).encoded,
-      0
-    ).call()
-    const expectedSender = tx.transfers[0].args.sender
-    const expectedRecipient = tx.transfers[0].args.recipient
-    const expectedStart = tx.transfers[0].args.start.toString()
-    const expectedEnd = tx.transfers[0].args.end.toString()
-    const expectedBlockNum = tx.args.block.toString()
-    assert.equal(requestedTransfer[0].toLowerCase(), expectedSender)
-    assert.equal(requestedTransfer[1].toLowerCase(), expectedRecipient)
-    assert.equal(requestedTransfer[2], expectedStart)
-    assert.equal(requestedTransfer[3], expectedEnd)
-    assert.equal(requestedTransfer[4], expectedBlockNum)
+  // BEGIN DEPOSITS AND EXITS SECTION
+  describe('Deposits and Exits', () => {
+    it('should allow a first deposit and add it to the deposits correctly', async () => {
+      const depositSize = 50
+      await plasma.methods.submitDeposit().send({ value: depositSize, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
+      const exitableStart = await plasma.methods.exitable(depositSize).call()
+      const depositStart = await plasma.methods.deposits__start(depositSize).call()
+      const depositer = await plasma.methods.deposits__depositer(depositSize).call()
+      assert.equal(exitableStart, '0')
+      assert.equal(depositStart, '0')
+      assert.equal(depositer, web3.eth.accounts.wallet[1].address)
+    })
+    it('should allow a second deposit and add it to the deposits correctly', async () => {
+      const depositSize = 500
+      await plasma.methods.submitDeposit().send({ value: depositSize, from: web3.eth.accounts.wallet[2].address, gas: 4000000 })
+      const depositEnd = 550 // 550 hardcoded from above deposit of 50
+      const exitableStart = await plasma.methods.exitable(depositEnd).call()
+      const depositStart = await plasma.methods.deposits__start(depositEnd).call()
+      const depositer = await plasma.methods.deposits__depositer(depositEnd).call()
+      assert.equal(exitableStart, '0')
+      assert.equal(depositStart, '50')
+      assert.equal(depositer, web3.eth.accounts.wallet[2].address)
+    })
+    it('should allow that users `beginExit`s', async () => {
+      const plasmaBlock = '0'
+      const exitStart = '0'
+      const exitEnd = '10'
+      await plasma.methods.beginExit(plasmaBlock, exitStart, exitEnd).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
+      const exitID = 0 // hardcode since this is all a deterministic test
+      const exiter = await plasma.methods.exits__exiter(exitID).call()
+      assert.equal(exiter, web3.eth.accounts.wallet[1].address)
+    })
+    it('should properly finalize leftmost, rightmost, and middle exits', async () => {
+      // this test finalizes exits in order of left, right, middle.
+      // LEFT EXIT: (0, 10) -- beginExit() already happened in the last test
+      await setup.mineNBlocks(CHALLENGE_PERIOD) // finalizing exits in order of left, right, middle for testing variety
+      await plasma.methods.finalizeExit(0, 550).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
+
+      // now do the end: exiting 300, 550 -> exitID 1
+      const plasmaBlock = '0'
+      await plasma.methods.beginExit(plasmaBlock, 300, 550).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
+      await setup.mineNBlocks(CHALLENGE_PERIOD)
+      await plasma.methods.finalizeExit(1, 550).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
+
+      // now do the middle: 100,200 -> exitID 2
+      await plasma.methods.beginExit(plasmaBlock, 100, 200).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
+      await setup.mineNBlocks(CHALLENGE_PERIOD)
+      await plasma.methods.finalizeExit(2, 300).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
+
+      const firstExitableStart = await plasma.methods.exitable(100).call()
+      const secondExitableStart = await plasma.methods.exitable(300).call()
+      assert.equal(firstExitableStart, '10')
+      assert.equal(secondExitableStart, '200')
+    })
+    it('should properly process a new deposit after the rightmost coin was exited', async () => {
+      const depositSize = 420
+      await plasma.methods.submitDeposit().send({ value: depositSize, from: web3.eth.accounts.wallet[2].address, gas: 4000000 })
+      const depositEnd = 970 // total deposits were now 50 + 500 + 420
+      const exitableStart = await plasma.methods.exitable(depositEnd).call()
+      assert.equal(exitableStart, '550')
+    })
   })
   // it('should allow inclusionChallenges and their response', async () => {
   //   const index = Math.floor(Math.random() * txs.length)
@@ -294,21 +312,3 @@ describe('Plasma Initialization', () => {
   //   debugger
   // })
 })
-
-function genRandomTX (blockNum, numTransfers) {
-  let randomTransfers = []
-  for (let i = 0; i < numTransfers; i++) {
-    // fuzz a random encoding to test decoding with
-    let randomVals = ''
-    for (let i = 0; i < 28; i++) { // random start, end, type = 12+12+4 bytes
-      const randHex = Math.floor(Math.random() * 256)
-      randomVals += new BN(randHex, 10).toString(16, 2)
-    }
-    randomTransfers +=
-      web3.eth.accounts.wallet[i].address.slice(2) +
-      web3.eth.accounts.wallet[i + 1].address.slice(2) +
-      randomVals
-    // can't have invalid addresses so ignore this partthe 33rd byte is the numTransfers which isn't random--it's 4
-  }
-  return new BN(blockNum).toString(16, 8) + new BN(numTransfers).toString(16, 2) + randomTransfers
-}
