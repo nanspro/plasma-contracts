@@ -22,7 +22,7 @@ for (let i = 0; i < 5; i++) {
   web3.eth.accounts.wallet.add(privateKey)
 }
 // For all provider options, see: https://github.com/trufflesuite/ganache-cli#library
-const providerOptions = { 'accounts': ganacheAccounts, 'locked': false, 'logger': console }
+const providerOptions = { 'accounts': ganacheAccounts, 'locked': false } // , 'logger': console }
 web3.setProvider(ganache.provider(providerOptions))
 
 async function mineBlock () {
@@ -105,7 +105,7 @@ const getSequentialTxs = (n) => {
   return txs
 }
 
-let bytecode, abi, plasma, freshContractSnapshot
+let bytecode, abi, plasma, operatorSetup, freshContractSnapshot
 
 async function setupPlasma () {
   [bytecode, abi] = await compilePlasmaContract()
@@ -123,12 +123,9 @@ async function setupPlasma () {
     */
   // const block = await web3.eth.getBlock('latest')
   // const deploymentTransaction = await web3.eth.getTransaction(block.transactions[0]) // eslint-disable-line no-unused-vars
+  operatorSetup = await plasma.methods.setup(web3.eth.accounts.wallet[0].address).send()
   freshContractSnapshot = await getCurrentChainSnapshot()
-  return [bytecode, abi, plasma, freshContractSnapshot]
-}
-
-function get () {
-  return [bytecode, abi, plasma, freshContractSnapshot]
+  return [bytecode, abi, plasma, operatorSetup, freshContractSnapshot]
 }
 
 module.exports = {
@@ -141,5 +138,5 @@ module.exports = {
   mineNBlocks,
   getSequentialTxs,
   setupPlasma,
-  get
+  operatorSetup
 }
