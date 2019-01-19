@@ -50,8 +50,8 @@ MAX_END: constant(uint256) = 170141183460469231731687303715884105727
 #     return addr
 
 @public
-def __init__():
-    self.operator = msg.sender
+def setup(_operator: address):
+    self.operator = _operator
     self.nextPlasmaBlockNumber = 0
     self.exitNonce = 0
     self.lastPublish = 0
