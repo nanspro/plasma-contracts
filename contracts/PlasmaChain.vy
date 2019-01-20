@@ -46,9 +46,11 @@ invalidHistoryChallenges: public(map(uint256, invalidHistoryChallenge))
 
 # period (of ethereum blocks) during which an exit can be challenged
 CHALLENGE_PERIOD: constant(uint256) = 20
+# period (of ethereum blocks) during which an invalid history history challenge can be responded
+SPENTCOIN_CHALLENGE_PERIOD(uint256) = CHALLENGE_PERIOD / 2
 # minimum number of ethereum blocks between new plasma blocks
 PLASMA_BLOCK_INTERVAL: constant(uint256) = 0
-#
+
 MAX_TREE_DEPTH: constant(int128) = 8
 MAX_TRANSFERS: constant(uint256) = 4
 MAX_END: constant(uint256) = 170141183460469231731687303715884105727
@@ -542,6 +544,7 @@ def challengeBeforeDeposit(
     coinID: uint256,
     depositEnd: uint256
 ):
+    # note: this can always be challenged because no response and all info on-chain, no invalidity period needed
     depositPrecedingPlasmaBlock: uint256 = self.deposits[depositEnd].precedingPlasmaBlock
     assert self.deposits[depositEnd].depositer != ZERO_ADDRESS # requires the deposit to be a valid deposit and not something unset
     
@@ -558,6 +561,10 @@ def challengeBeforeDeposit(
 def challengeInclusion(exitID: uint256):
     # check the exit being challenged exists
     assert exitID < self.exitNonce
+
+    # check we can still challenge
+    exitEthBlock: uint256 = self.exits[exitID].ethBlock
+    assert block.number < exitEthBlock + CHALLENGE_PERIOD
 
     # store challenge
     challengeID: uint256 = self.challengeNonce
@@ -640,6 +647,9 @@ def challengeSpentCoin(
     transactionEncoding: bytes[277],
     transactionProofEncoding: bytes[1749],
 ):
+    # check we can still challenge
+    exitEthBlock: uint256 = self.exits[exitID].ethBlock
+    assert block.number < exitEthBlock + SPENTCOIN_CHALLENGE_PERIOD
 
     transferStart: uint256 # these will be the ones at the trIndex we are being asked about by the exit game
     transferEnd: uint256
@@ -688,6 +698,10 @@ def challengeInvalidHistory(
     end: uint256,
     blockNumber: uint256
 ):
+    # check we can still challenge
+    exitEthBlock: uint256 = self.exits[exitID].ethBlock
+    assert block.number < exitEthBlock + CHALLENGE_PERIOD
+
     # check the coinspend came before the exit block
     assert blockNumber < self.exits[exitID].plasmaBlock
 
