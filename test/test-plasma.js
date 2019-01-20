@@ -27,6 +27,7 @@ const CHALLENGE_PERIOD = 20
 
 describe('Plasma Smart Contract', () => {
   let bytecode, abi, plasma, operatorSetup, freshContractSnapshot
+  const dummyBlockHash = '0x000000000000000000000000000000000000000000000000000000000000000'
   // BEGIN SETUP
   before(async () => {
     // setup ganache, deploy, etc.
@@ -49,7 +50,6 @@ describe('Plasma Smart Contract', () => {
   // BEGIN OPERATOR SECTION
   describe('Operator Usage', () => {
     it('should allow a block to be published by the operator', async () => {
-      const dummyBlockHash = '0x000000000000000000000000000000000000000000000000000000000000000'
       await plasma.methods.submitBlock(dummyBlockHash).send({ value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000 }).catch((error) => { console.log('send callback failed: ', error) })
     })
   })
@@ -313,7 +313,7 @@ describe('Plasma Smart Contract', () => {
       web3.eth.accounts.wallet[4].address
     ]
     const txA = new Transaction({
-      block: 0,
+      block: 2,
       transfers: [
         {
           sender: alice,
@@ -325,7 +325,7 @@ describe('Plasma Smart Contract', () => {
       ]
     })
     const txB = new Transaction({
-      block: 1,
+      block: 3,
       transfers: [
         {
           sender: bob,
@@ -337,7 +337,7 @@ describe('Plasma Smart Contract', () => {
       ]
     })
     const txC = new Transaction({
-      block: 2,
+      block: 4,
       transfers: [
         {
           sender: carol,
@@ -360,12 +360,17 @@ describe('Plasma Smart Contract', () => {
     before(async function () {
       await setup.revertToChainSnapshot(freshContractSnapshot)
       freshContractSnapshot = await getCurrentChainSnapshot() // weird bug where ganache crashes if you load the same snapshot twice, so gotta "reset" it every time it's used.
+      await plasma.methods.submitBlock(dummyBlockHash).send({ value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000 }).catch((error) => { console.log('send callback failed: ', error) })
+      await plasma.methods.submitBlock(dummyBlockHash).send({ value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000 }).catch((error) => { console.log('send callback failed: ', error) })
+      
+      await plasma.methods.submitDeposit().send({ value: end, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
+      
       await plasma.methods.submitBlock('0x' + blocks[0].root().hash).send({ value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000 })
       await plasma.methods.submitBlock('0x' + blocks[1].root().hash).send({ value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000 })
       await plasma.methods.submitBlock('0x' + blocks[2].root().hash).send({ value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000 })
     })
-    it('should allow inclusionChallenges and their response', async () => {
-      await plasma.methods.beginExit(2, start, end).send({ value: 0, from: dave, gas: 4000000 })
+    it('should allow inclusionChallenges and respondTransactionInclusion', async () => {
+      await plasma.methods.beginExit(4, start, end).send({ value: 0, from: dave, gas: 4000000 })
       let exitID = 0 // this will be 0 since it's the first exit
 
       await plasma.methods.challengeInclusion(exitID).send({ value: 0, from: alice, gas: 4000000 })
@@ -375,7 +380,7 @@ describe('Plasma Smart Contract', () => {
       assert.equal(chalCount, '1')
 
       const transferIndex = 0
-      const recip = await plasma.methods.respondInclusion(
+      const recip = await plasma.methods.respondTransactionInclusion(
         chalID,
         transferIndex,
         '0x' + txC.encoded,
@@ -388,10 +393,32 @@ describe('Plasma Smart Contract', () => {
       const isOngoing = await plasma.methods.inclusionChallenges__ongoing(chalID).call()
       assert.equal(isOngoing, false)
     })
+    it('should allow respondDepositInclusion s', async () => {
+      await plasma.methods.beginExit(1, start, end).send({ value: 0, from: alice, gas: 4000000 })
+      let exitID = 1 // this will be 1 since it's the second exit in this describe
+
+      await plasma.methods.challengeInclusion(exitID).send({ value: 0, from: alice, gas: 4000000 })
+      let chalID = 1 // this will be 1 since it's the second chal in this describe
+
+      const chalCount = await plasma.methods.exits__challengeCount(exitID).call()
+      assert.equal(chalCount, '1')
+
+      const transferIndex = 0
+      const recip = await plasma.methods.respondDepositInclusion(
+        chalID,
+        end
+      ).send()
+
+      const newChalCount = await plasma.methods.exits__challengeCount(exitID).call()
+      assert.equal(newChalCount, '0')
+
+      const isOngoing = await plasma.methods.inclusionChallenges__ongoing(chalID).call()
+      assert.equal(isOngoing, false)
+    })
     it('should allow Spent Coin Challenges to cancel exits', async () => {
       // have Bob exit even though he sent to Carol
-      await plasma.methods.beginExit(1, start, end).send({ value: 0, from: carol, gas: 4000000 })
-      const exitID = 1 // this is the second exit in this 'describe' of testing
+      await plasma.methods.beginExit(3, start, end).send({ value: 0, from: carol, gas: 4000000 })
+      const exitID = 2 // this is the second exit in this 'describe' of testing
       
       const coinID = 0 // could be anything from 0 to 100
       const transferIndex = 0 // only one transfer in these
@@ -402,6 +429,22 @@ describe('Plasma Smart Contract', () => {
         transferIndex,
         '0x' + chalTX.encoded,
         '0x' + blocks[2].getTransactionProof(chalTX).encoded
+      ).send()
+
+      const deletedExiter = await plasma.methods.exits__exiter(exitID).call()
+
+      const expected = '0x0000000000000000000000000000000000000000'
+      assert.equal(deletedExiter, expected)
+    })
+    it('should allow challengeBeforeDeposit s', async () => {
+      await plasma.methods.beginExit(0, start, end).send({ value: 0, from: alice, gas: 4000000 })
+      const exitID = 3 // this is the third exit in this 'describe' of testing
+
+      const coinID = 0 // anything in the deposit, 0-99
+      await plasma.methods.challengeBeforeDeposit(
+        exitID,
+        coinID,
+        end
       ).send()
 
       const deletedExiter = await plasma.methods.exits__exiter(exitID).call()
