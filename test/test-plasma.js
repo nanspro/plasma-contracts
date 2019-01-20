@@ -316,8 +316,9 @@ describe('Plasma Smart Contract', () => {
       web3.eth.accounts.wallet[3].address,
       web3.eth.accounts.wallet[4].address
     ]
+    const [blockNumA, blockNumB, blockNumC] = [3, 4, 5] // publishing 2 empty blocks first and index starts at 1 currently
     const txA = new Transaction({
-      block: 3,
+      block: blockNumA,
       transfers: [
         {
           sender: alice,
@@ -329,7 +330,7 @@ describe('Plasma Smart Contract', () => {
       ]
     })
     const txB = new Transaction({
-      block: 4,
+      block: blockNumB,
       transfers: [
         {
           sender: bob,
@@ -341,7 +342,7 @@ describe('Plasma Smart Contract', () => {
       ]
     })
     const txC = new Transaction({
-      block: 5,
+      block: blockNumC,
       transfers: [
         {
           sender: carol,
@@ -356,11 +357,14 @@ describe('Plasma Smart Contract', () => {
     // Get some random transactions so make a tree with.  Note that they will be invalid--but we're not checking them so who cares! :P
     const otherTXs = genSequentialTXs(300).slice(200)
 
-    const blocks = [
-      new PlasmaMerkleSumTree([txA].concat(otherTXs)),
-      new PlasmaMerkleSumTree([txB].concat(otherTXs)),
-      new PlasmaMerkleSumTree([txC].concat(otherTXs))
-    ]
+    const blocks = {
+      A: new PlasmaMerkleSumTree([txA].concat(otherTXs)),
+      B: new PlasmaMerkleSumTree([txB].concat(otherTXs)),
+      C: new PlasmaMerkleSumTree([txC].concat(otherTXs))
+    }
+
+    let chalNonce = 0
+    let exitNonce = 0
     before(async function () {
       await setup.revertToChainSnapshot(freshContractSnapshot)
       freshContractSnapshot = await getCurrentChainSnapshot() // weird bug where ganache crashes if you load the same snapshot twice, so gotta "reset" it every time it's used.
@@ -369,16 +373,18 @@ describe('Plasma Smart Contract', () => {
 
       await plasma.methods.submitDeposit().send({ value: end, from: alice, gas: 4000000 })
 
-      await plasma.methods.submitBlock('0x' + blocks[0].root().hash).send({ value: 0, from: operator, gas: 4000000 })
-      await plasma.methods.submitBlock('0x' + blocks[1].root().hash).send({ value: 0, from: operator, gas: 4000000 })
-      await plasma.methods.submitBlock('0x' + blocks[2].root().hash).send({ value: 0, from: operator, gas: 4000000 })
+      await plasma.methods.submitBlock('0x' + blocks['A'].root().hash).send({ value: 0, from: operator, gas: 4000000 })
+      await plasma.methods.submitBlock('0x' + blocks['B'].root().hash).send({ value: 0, from: operator, gas: 4000000 })
+      await plasma.methods.submitBlock('0x' + blocks['C'].root().hash).send({ value: 0, from: operator, gas: 4000000 })
     })
     it('should allow inclusionChallenges and respondTransactionInclusion', async () => {
       await plasma.methods.beginExit(5, start, end).send({ value: 0, from: dave, gas: 4000000 })
-      let exitID = 0 // this will be 0 since it's the first exit
+      let exitID = exitNonce // this will be 0 since it's the first exit
+      exitNonce++
 
       await plasma.methods.challengeInclusion(exitID).send({ value: 0, from: alice, gas: 4000000 })
-      let chalID = 0 // this will be 0 since it's the first chal
+      let chalID = chalNonce // remember, the challenge nonce only counts respondable challenges (inv history and inclusion)
+      chalNonce++
 
       const chalCount = await plasma.methods.exits__challengeCount(exitID).call()
       assert.equal(chalCount, '1')
@@ -388,7 +394,7 @@ describe('Plasma Smart Contract', () => {
         chalID,
         transferIndex,
         '0x' + txC.encoded,
-        '0x' + blocks[2].getTransactionProof(txC).encoded
+        '0x' + blocks['C'].getTransactionProof(txC).encoded
       ).send()
 
       const newChalCount = await plasma.methods.exits__challengeCount(exitID).call()
@@ -399,10 +405,12 @@ describe('Plasma Smart Contract', () => {
     })
     it('should allow respondDepositInclusion s', async () => {
       await plasma.methods.beginExit(2, start, end).send({ value: 0, from: alice, gas: 4000000 })
-      let exitID = 1 // this will be 1 since it's the second exit in this describe
+      let exitID = exitNonce
+      exitNonce++
 
       await plasma.methods.challengeInclusion(exitID).send({ value: 0, from: alice, gas: 4000000 })
-      let chalID = 1 // this will be 1 since it's the second respondable chal in this describe
+      let chalID = chalNonce
+      chalNonce++
 
       const chalCount = await plasma.methods.exits__challengeCount(exitID).call()
       assert.equal(chalCount, '1')
@@ -421,7 +429,8 @@ describe('Plasma Smart Contract', () => {
     it('should allow Spent Coin Challenges to cancel exits', async () => {
       // have Bob exit even though he sent to Carol
       await plasma.methods.beginExit(3, start, end).send({ value: 0, from: carol, gas: 4000000 })
-      const exitID = 2 // this is the second exit in this 'describe' of testing
+      const exitID = exitNonce
+      exitNonce++
 
       const coinID = 0 // could be anything from 0 to 100
       const transferIndex = 0 // only one transfer in these
@@ -431,7 +440,7 @@ describe('Plasma Smart Contract', () => {
         coinID,
         transferIndex,
         '0x' + chalTX.encoded,
-        '0x' + blocks[2].getTransactionProof(chalTX).encoded
+        '0x' + blocks['C'].getTransactionProof(chalTX).encoded
       ).send()
 
       const deletedExiter = await plasma.methods.exits__exiter(exitID).call()
@@ -441,7 +450,8 @@ describe('Plasma Smart Contract', () => {
     })
     it('should allow challengeBeforeDeposit s', async () => {
       await plasma.methods.beginExit(0, start, end).send({ value: 0, from: alice, gas: 4000000 })
-      const exitID = 3 // this is the third exit in this 'describe' of testing
+      const exitID = exitNonce
+      exitNonce++
 
       const coinID = 0 // anything in the deposit, 0-99
       await plasma.methods.challengeBeforeDeposit(
@@ -457,18 +467,20 @@ describe('Plasma Smart Contract', () => {
     })
     it('should allow challengeInvalidHistoryWithTransaction s and respondInvalidHistoryTransaction s', async () => {
       await plasma.methods.beginExit(4, start, end).send({ value: 0, from: dave, gas: 4000000 })
-      let exitID = 4 // this will be 4 after the others above
-      const transferIndex = 0 // will be first transfer for both chal and resp
+      let exitID = exitNonce
+      exitNonce++
 
+      const transferIndex = 0 // will be first transfer for both chal and resp
       const coinID = 0 // could be any in deposit so [0,99]
       await plasma.methods.challengeInvalidHistoryWithTransaction(
         exitID,
         coinID,
         transferIndex,
         '0x' + txA.encoded,
-        '0x' + blocks[0].getTransactionProof(txA).encoded
+        '0x' + blocks['A'].getTransactionProof(txA).encoded
       ).send({ value: 0, from: alice, gas: 4000000 })
-      let chalID = 2 // this will be 2 since it's the third *respondable* chal in this describe
+      let chalID = chalNonce
+      chalNonce++
 
       const chalCount = await plasma.methods.exits__challengeCount(exitID).call()
       assert.equal(chalCount, '1')
@@ -477,7 +489,7 @@ describe('Plasma Smart Contract', () => {
         chalID,
         transferIndex,
         '0x' + txB.encoded,
-        '0x' + blocks[1].getTransactionProof(txB).encoded
+        '0x' + blocks['B'].getTransactionProof(txB).encoded
       ).send()
 
       const newChalCount = await plasma.methods.exits__challengeCount(exitID).call()
@@ -492,7 +504,8 @@ describe('Plasma Smart Contract', () => {
 
       // from txB extension above
       await plasma.methods.beginExit(5, end, end + 100).send({ value: 0, from: alice, gas: 4000000 })
-      let exitID = 5
+      let exitID = exitNonce
+      exitNonce++
 
       const coinID = 100
       const transferIndex = 0 // only one transfer in these
@@ -501,9 +514,10 @@ describe('Plasma Smart Contract', () => {
         coinID,
         transferIndex,
         '0x' + txB.encoded,
-        '0x' + blocks[1].getTransactionProof(txB).encoded
+        '0x' + blocks['B'].getTransactionProof(txB).encoded
       ).send({ value: 0, from: alice, gas: 4000000 })
-      let chalID = 3 // this will be 3 since it's the third *respondable* chal in this describe
+      let chalID = chalNonce
+      chalNonce++
 
       const chalCount = await plasma.methods.exits__challengeCount(exitID).call()
       assert.equal(chalCount, '1')
@@ -522,16 +536,18 @@ describe('Plasma Smart Contract', () => {
     })
     it('should allow challengeInvalidHistoryWithDeposit s and responses', async () => {
       await plasma.methods.beginExit(4, start, end).send({ value: 0, from: dave, gas: 4000000 })
-      let exitID = 6
-      const transferIndex = 0 // will be first transfer for both chal and resp
+      let exitID = exitNonce
+      exitNonce++
 
+      const transferIndex = 0 // will be first transfer for both chal and resp
       const coinID = 0 // could be any in deposit so [0,99]
       await plasma.methods.challengeInvalidHistoryWithDeposit(
         exitID,
         coinID,
         end
       ).send({ value: 0, from: alice, gas: 4000000 })
-      let chalID = 4
+      let chalID = chalNonce
+      chalNonce++
 
       const chalCount = await plasma.methods.exits__challengeCount(exitID).call()
       assert.equal(chalCount, '1')
@@ -540,7 +556,7 @@ describe('Plasma Smart Contract', () => {
         chalID,
         transferIndex,
         '0x' + txA.encoded,
-        '0x' + blocks[0].getTransactionProof(txA).encoded
+        '0x' + blocks['A'].getTransactionProof(txA).encoded
       ).send()
 
       const newChalCount = await plasma.methods.exits__challengeCount(exitID).call()
