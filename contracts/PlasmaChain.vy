@@ -543,7 +543,7 @@ def challengeBeforeDeposit(
     depositEnd: uint256
 ):
     depositPrecedingPlasmaBlock: uint256 = self.deposits[depositEnd].precedingPlasmaBlock
-    assert depositEnd <= self.totalDeposited # requires the deposit to be a valid deposit and not something unset
+    assert self.deposits[depositEnd].depositer != ZERO_ADDRESS # requires the deposit to be a valid deposit and not something unset
     
     depositStart: uint256 = self.deposits[depositEnd].start
 
