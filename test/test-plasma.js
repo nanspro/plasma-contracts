@@ -303,7 +303,7 @@ describe('Plasma Smart Contract', () => {
       assert.equal(exitableStart, '550')
     })
   })
-  describe.only('Exit games', () => {
+  describe('Exit games', () => {
     const [type, start, end] = [0, 0, 100]
     const [operator, alice, bob, carol, dave] = [
       web3.eth.accounts.wallet[0].address,
