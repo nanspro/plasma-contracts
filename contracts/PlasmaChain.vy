@@ -447,7 +447,7 @@ COINID_BYTES: constant(int128) = 16
 PROOF_MAX_LENGTH: constant(uint256) = 384 # 384 = TREENODE_LEN (48) * MAX_TREE_DEPTH (8) 
 ENCODING_LENGTH_PER_TRANSFER: constant(int128) = 165
 @public
-def checkTXValidityAndGetTransfer(
+def checkTransactionProofAndGetTransfer(
         transactionEncoding: bytes[277],
         transactionProofEncoding: bytes[1749],
         transferIndex: int128
@@ -515,8 +515,8 @@ def checkTXValidityAndGetTransfer(
 
 
     return (
-        requestedTransferFrom,
         requestedTransferTo,
+        requestedTransferFrom,
         requestedTransferStart,
         requestedTransferEnd,
         plasmaBlockNumber
@@ -541,39 +541,84 @@ def respondInclusion(
         challengeID: uint256,
         transferIndex: int128,
         transactionEncoding: bytes[277],
-        parsedSums: bytes[64],  #COINID_BYTES * MAX_TRANSFERS (4)
-        leafIndices: bytes[4], #MAX_TRANSFERS * MAX_TREE_DEPTH / 8
-        proofs: bytes[1536] #TREENODE_LEN (48) * MAX_TREE_DEPTH (8) * MAX_TRANSFERS (4)
+        transactionProofEncoding: bytes[1749],
 ):
     assert self.inclusionChallenges[challengeID].ongoing
 
     transferStart: uint256 # these will be the ones at the trIndex we are being asked about by the exit game
     transferEnd: uint256
-    transferTo: address
-    transferFrom: address
+    transferRecipient: address
+    transferSender: address
     bn: uint256
 
- #   (
- #       transferStart, 
- #       transferEnd, 
- #       transferTo, 
- #       transferFrom,
- #       bn
- #   ) = self.checkTXValidityAndGetTransfer(
- #       transferIndex,
- #       transactionEncoding,
- #       parsedSums,
- #       leafIndices,
- #       proofs
- #   )
+    (
+        transferRecipient,
+        transferSender,
+        transferStart, 
+        transferEnd, 
+        bn
+    ) = self.checkTransactionProofAndGetTransfer(
+        transactionEncoding,
+        transactionProofEncoding,
+        transferIndex
+    )
 
     exitID: uint256 = self.inclusionChallenges[challengeID].exitID
     exiter: address = self.exits[exitID].exiter
     exitPlasmaBlock: uint256 = self.exits[exitID].plasmaBlock
 
     # check exit exiter is indeed recipient
-    assert transferTo == exiter
+    assert transferRecipient == exiter
+
+    #check the inclusion was indeed at this block
+    assert exitPlasmaBlock == bn
 
     # response was successful
-    self.inclusionChallenges[challengeID].ongoing = False
+    clear(self.inclusionChallenges[challengeID])
     self.exits[exitID].challengeCount -= 1
+
+@public
+def challengeSpentCoin(
+    exitID: uint256,
+    coinID: uint256,
+    transferIndex: int128,
+    transactionEncoding: bytes[277],
+    transactionProofEncoding: bytes[1749],
+):
+    transferStart: uint256 # these will be the ones at the trIndex we are being asked about by the exit game
+    transferEnd: uint256
+    transferRecipient: address
+    transferSender: address
+    bn: uint256
+
+    (
+        transferRecipient,
+        transferSender,
+        transferStart, 
+        transferEnd, 
+        bn
+    ) = self.checkTransactionProofAndGetTransfer(
+        transactionEncoding,
+        transactionProofEncoding,
+        transferIndex
+    )
+
+    exiter: address = self.exits[exitID].exiter
+    exitPlasmaBlock: uint256 = self.exits[exitID].plasmaBlock
+    exitStart: uint256 = self.exits[exitID].start
+    exitEnd: uint256 = self.exits[exitID].end
+
+    # check the coinspend came after the exit block
+    assert bn > exitPlasmaBlock
+
+    # check the coinspend intersects both the exit and proven transfer
+    assert coinID >= exitStart
+    assert coinID < exitEnd
+    assert coinID >= transferStart
+    assert coinID < transferEnd
+
+    # check the sender was the exiter
+    #assert transferSender == exiter
+
+    # if all these passed, the coin was indeed spent.  CANCEL!
+    clear(self.exits[exitID])

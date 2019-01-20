@@ -21,8 +21,8 @@ const TransactionProof = models.TransactionProof
 const genSequentialTXs = plasmaUtils.utils.getSequentialTxs
 const genRandomTX = plasmaUtils.utils.genRandomTX
 const setup = require('./setup-plasma')
+const getCurrentChainSnapshot = setup.getCurrentChainSnapshot
 const web3 = setup.web3
-genSequentialTXs
 const CHALLENGE_PERIOD = 20
 
 describe('Plasma Smart Contract', () => {
@@ -50,7 +50,6 @@ describe('Plasma Smart Contract', () => {
   describe('Operator Usage', () => {
     it('should allow a block to be published by the operator', async () => {
       const dummyBlockHash = '0x000000000000000000000000000000000000000000000000000000000000000'
-      await setup.mineNBlocks(10) // blocktime is 10
       await plasma.methods.submitBlock(dummyBlockHash).send({ value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000 }).catch((error) => { console.log('send callback failed: ', error) })
     })
   })
@@ -214,6 +213,7 @@ describe('Plasma Smart Contract', () => {
     })
     it('should checkTransferProofAndGetBounds', async () => {
       await setup.revertToChainSnapshot(freshContractSnapshot)
+      freshContractSnapshot = await getCurrentChainSnapshot() // weird bug where ganache crashes if you load the same snapshot twice, so gotta "reset" it every time it's used.
       await plasma.methods.submitBlock('0x' + tree.root().hash).send({ value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000 })
       const possibleImplicitBounds = await plasma.methods.checkTransferProofAndGetBounds(
         web3.utils.soliditySha3('0x' + tx.encoded),
@@ -223,8 +223,8 @@ describe('Plasma Smart Contract', () => {
       assert.equal(possibleImplicitBounds[0], new BN(0))
       assert(new BN(possibleImplicitBounds[1]).gte(new BN(txs[0].args.transfers[0].end)))
     })
-    it('should checkTXValidityAndGetTransfer', async () => {
-      const requestedTransfer = await plasma.methods.checkTXValidityAndGetTransfer(
+    it('should checkTransactionProofAndGetTransfer', async () => {
+      const requestedTransfer = await plasma.methods.checkTransactionProofAndGetTransfer(
         '0x' + tx.encoded,
         '0x' + tree.getTransactionProof(tx).encoded,
         0
@@ -303,13 +303,111 @@ describe('Plasma Smart Contract', () => {
       assert.equal(exitableStart, '550')
     })
   })
-  describe('Exit games', () => {
+  describe.only('Exit games', () => {
+    const [type, start, end] = [0, 0, 100]
+    const [operator, alice, bob, carol, dave] = [
+      web3.eth.accounts.wallet[0].address,
+      web3.eth.accounts.wallet[1].address,
+      web3.eth.accounts.wallet[2].address,
+      web3.eth.accounts.wallet[3].address,
+      web3.eth.accounts.wallet[4].address
+    ]
+    const txA = new Transaction({
+      block: 0,
+      transfers: [
+        {
+          sender: alice,
+          recipient: bob,
+          type: type,
+          start: start,
+          end: end
+        }
+      ]
+    })
+    const txB = new Transaction({
+      block: 1,
+      transfers: [
+        {
+          sender: bob,
+          recipient: carol,
+          type: type,
+          start: start,
+          end: end
+        }
+      ]
+    })
+    const txC = new Transaction({
+      block: 2,
+      transfers: [
+        {
+          sender: carol,
+          recipient: dave,
+          type: type,
+          start: start,
+          end: end
+        }
+      ]
+    })
+
+    // Get some random transactions so make a tree with.  Note that they will be invalid--but we're not checking them so who cares! :P
+    const otherTXs = genSequentialTXs(300).slice(200)
+
+    const blocks = [
+      new PlasmaMerkleSumTree([txA].concat(otherTXs)),
+      new PlasmaMerkleSumTree([txB].concat(otherTXs)),
+      new PlasmaMerkleSumTree([txC].concat(otherTXs))
+    ]
+    before(async function () {
+      await setup.revertToChainSnapshot(freshContractSnapshot)
+      freshContractSnapshot = await getCurrentChainSnapshot() // weird bug where ganache crashes if you load the same snapshot twice, so gotta "reset" it every time it's used.
+      await plasma.methods.submitBlock('0x' + blocks[0].root().hash).send({ value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000 })
+      await plasma.methods.submitBlock('0x' + blocks[1].root().hash).send({ value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000 })
+      await plasma.methods.submitBlock('0x' + blocks[2].root().hash).send({ value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000 })
+    })
     it('should allow inclusionChallenges and their response', async () => {
-      const index = Math.floor(Math.random() * txs.length)
-      const tx = txs[index]
-      const start = new BN(tx.args.transfer.start)
-      const end = new BN(tx.args.transfer.end)
-      const a = await plasma.methods.beginExit(1, start, end, 0).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
+      await plasma.methods.beginExit(2, start, end).send({ value: 0, from: dave, gas: 4000000 })
+      let exitID = 0 // this will be 0 since it's the first exit
+
+      await plasma.methods.challengeInclusion(exitID).send({ value: 0, from: alice, gas: 4000000 })
+      let chalID = 0 // this will be 0 since it's the first chal
+
+      const chalCount = await plasma.methods.exits__challengeCount(exitID).call()
+      assert.equal(chalCount, '1')
+
+      const transferIndex = 0
+      const recip = await plasma.methods.respondInclusion(
+        chalID,
+        transferIndex,
+        '0x' + txC.encoded,
+        '0x' + blocks[2].getTransactionProof(txC).encoded
+      ).send()
+
+      const newChalCount = await plasma.methods.exits__challengeCount(exitID).call()
+      assert.equal(newChalCount, '0')
+
+      const isOngoing = await plasma.methods.inclusionChallenges__ongoing(chalID).call()
+      assert.equal(isOngoing, false)
+    })
+    it('should allow Spent Coin Challenges to cancel exits', async () => {
+      // have Bob exit even though he sent to Carol
+      await plasma.methods.beginExit(1, start, end).send({ value: 0, from: carol, gas: 4000000 })
+      const exitID = 1 // this is the second exit in this 'describe' of testing
+      
+      const coinID = 0 // could be anything from 0 to 100
+      const transferIndex = 0 // only one transfer in these
+      const chalTX = txC
+      await plasma.methods.challengeSpentCoin(
+        exitID,
+        coinID,
+        transferIndex,
+        '0x' + chalTX.encoded,
+        '0x' + blocks[2].getTransactionProof(chalTX).encoded
+      ).send()
+
+      const deletedExiter = await plasma.methods.exits__exiter(exitID).call()
+
+      const expected = '0x0000000000000000000000000000000000000000'
+      assert.equal(deletedExiter, expected)
     })
   })
 })
