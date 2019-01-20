@@ -47,13 +47,12 @@ invalidHistoryChallenges: public(map(uint256, invalidHistoryChallenge))
 # period (of ethereum blocks) during which an exit can be challenged
 CHALLENGE_PERIOD: constant(uint256) = 20
 # period (of ethereum blocks) during which an invalid history history challenge can be responded
-SPENTCOIN_CHALLENGE_PERIOD(uint256) = CHALLENGE_PERIOD / 2
+SPENTCOIN_CHALLENGE_PERIOD: constant(uint256) = CHALLENGE_PERIOD / 2
 # minimum number of ethereum blocks between new plasma blocks
 PLASMA_BLOCK_INTERVAL: constant(uint256) = 0
 
 MAX_TREE_DEPTH: constant(int128) = 8
 MAX_TRANSFERS: constant(uint256) = 4
-MAX_END: constant(uint256) = 170141183460469231731687303715884105727
 
 # @public
 # def ecrecover_util(message_hash: bytes32, signature: bytes[65]) -> address:
@@ -416,7 +415,6 @@ def checkTransactionProofAndGetTransfer(
         assert implicitStart <= transferStart
         assert transferStart < transferEnd
         assert transferEnd <= implicitEnd
-        assert implicitEnd <= MAX_END
 
         v: bytes[1] # v
         r: bytes32 # r
@@ -474,7 +472,7 @@ def submitDeposit():
     oldRange: exitableRange = self.exitable[oldEnd] # remember, map is end -> start!
 
     self.totalDeposited += depositAmount # add deposit
-    assert self.totalDeposited < MAX_END # make sure we're not at capacity
+    # removed, replace with per ERC -->    assert self.totalDeposited < MAX_END # make sure we're not at capacity
     clear(self.exitable[oldEnd]) # delete old exitable range
     self.exitable[self.totalDeposited] = oldRange #make exitable
 
