@@ -22,7 +22,7 @@ for (let i = 0; i < 5; i++) {
   web3.eth.accounts.wallet.add(privateKey)
 }
 // For all provider options, see: https://github.com/trufflesuite/ganache-cli#library
-const providerOptions = { 'accounts': ganacheAccounts, 'locked': false, 'logger': console }
+const providerOptions = { 'accounts': ganacheAccounts, 'locked': false } // , 'logger': console }
 web3.setProvider(ganache.provider(providerOptions))
 
 async function mineBlock () {
