@@ -2,8 +2,8 @@
 
 struct Exit:
     exiter: address
-    plasmaBlock: uint256
-    ethBlock: uint256
+    plasmaBlockNumber: uint256
+    ethBlockNumber: uint256
     start: uint256
     end: uint256
     challengeCount: uint256
@@ -22,7 +22,7 @@ struct invalidHistoryChallenge:
 struct deposit:
     start: uint256
     depositer: address
-    precedingPlasmaBlock: uint256
+    precedingPlasmaBlockNumber: uint256
 
 struct exitableRange:
     start: uint256
@@ -478,16 +478,16 @@ def submitDeposit():
 
     self.deposits[self.totalDeposited].start = oldEnd # the range (oldEnd, newTotalDeposited) was deposited by the depositer
     self.deposits[self.totalDeposited].depositer = msg.sender
-    self.deposits[self.totalDeposited].precedingPlasmaBlock = self.nextPlasmaBlockNumber - 1
+    self.deposits[self.totalDeposited].precedingPlasmaBlockNumber = self.nextPlasmaBlockNumber - 1
 
 @public
-def beginExit(bn: uint256, start: uint256, end: uint256) -> uint256:
-    assert bn < self.nextPlasmaBlockNumber
+def beginExit(blockNumber: uint256, start: uint256, end: uint256) -> uint256:
+    assert blockNumber < self.nextPlasmaBlockNumber
 
     exitID: uint256 = self.exitNonce
     self.exits[exitID].exiter = msg.sender
-    self.exits[exitID].plasmaBlock = bn
-    self.exits[exitID].ethBlock = block.number
+    self.exits[exitID].plasmaBlockNumber = blockNumber
+    self.exits[exitID].ethBlockNumber = block.number
     self.exits[exitID].start = start
     self.exits[exitID].end = end
     self.exits[exitID].challengeCount = 0
@@ -521,7 +521,7 @@ def removeFromExitable(start: uint256, end: uint256, exitableEnd: uint256):
 @public
 def finalizeExit(exitID: uint256, exitableEnd: uint256) -> uint256:
     exiter: address = self.exits[exitID].exiter
-    exitEthBlock: uint256 = self.exits[exitID].ethBlock
+    exitethBlockNumber: uint256 = self.exits[exitID].ethBlockNumber
     exitStart: uint256  = self.exits[exitID].start
     exitEnd: uint256 = self.exits[exitID].end
     challengeCount: uint256 = self.exits[exitID].challengeCount
@@ -530,7 +530,7 @@ def finalizeExit(exitID: uint256, exitableEnd: uint256) -> uint256:
     self.removeFromExitable(exitStart, exitEnd, exitableEnd)
 
     assert challengeCount == 0
-    assert block.number > exitEthBlock + CHALLENGE_PERIOD
+    assert block.number > exitethBlockNumber + CHALLENGE_PERIOD
 
     exitValue: wei_value = as_wei_value(exitEnd - exitStart, "wei")
     send(exiter, exitValue)
@@ -543,7 +543,7 @@ def challengeBeforeDeposit(
     depositEnd: uint256
 ):
     # note: this can always be challenged because no response and all info on-chain, no invalidity period needed
-    depositPrecedingPlasmaBlock: uint256 = self.deposits[depositEnd].precedingPlasmaBlock
+    depositPrecedingPlasmaBlock: uint256 = self.deposits[depositEnd].precedingPlasmaBlockNumber
     assert self.deposits[depositEnd].depositer != ZERO_ADDRESS # requires the deposit to be a valid deposit and not something unset
     
     depositStart: uint256 = self.deposits[depositEnd].start
@@ -551,7 +551,7 @@ def challengeBeforeDeposit(
     assert coinID >= depositStart
     assert coinID < depositEnd
 
-    assert depositPrecedingPlasmaBlock > self.exits[exitID].plasmaBlock
+    assert depositPrecedingPlasmaBlock > self.exits[exitID].plasmaBlockNumber
 
     clear(self.exits[exitID])
 
@@ -561,8 +561,8 @@ def challengeInclusion(exitID: uint256):
     assert exitID < self.exitNonce
 
     # check we can still challenge
-    exitEthBlock: uint256 = self.exits[exitID].ethBlock
-    assert block.number < exitEthBlock + CHALLENGE_PERIOD
+    exitethBlockNumber: uint256 = self.exits[exitID].ethBlockNumber
+    assert block.number < exitethBlockNumber + CHALLENGE_PERIOD
 
     # store challenge
     challengeID: uint256 = self.challengeNonce
@@ -586,14 +586,14 @@ def respondTransactionInclusion(
     transferEnd: uint256
     transferRecipient: address
     transferSender: address
-    bn: uint256
+    responseBlockNumber: uint256
 
     (
         transferRecipient,
         transferSender,
         transferStart, 
         transferEnd, 
-        bn
+        responseBlockNumber
     ) = self.checkTransactionProofAndGetTransfer(
         transactionEncoding,
         transactionProofEncoding,
@@ -602,13 +602,13 @@ def respondTransactionInclusion(
 
     exitID: uint256 = self.inclusionChallenges[challengeID].exitID
     exiter: address = self.exits[exitID].exiter
-    exitPlasmaBlock: uint256 = self.exits[exitID].plasmaBlock
+    exitPlasmaBlockNumber: uint256 = self.exits[exitID].plasmaBlockNumber
 
     # check exit exiter is indeed recipient
     assert transferRecipient == exiter
 
     #check the inclusion was indeed at this block
-    assert exitPlasmaBlock == bn
+    assert exitPlasmaBlockNumber == responseBlockNumber
 
     # response was successful
     clear(self.inclusionChallenges[challengeID])
@@ -623,15 +623,15 @@ def respondDepositInclusion(
     
     exitID: uint256 = self.inclusionChallenges[challengeID].exitID
     exiter: address = self.exits[exitID].exiter
-    exitPlasmaBlock: uint256 = self.exits[exitID].plasmaBlock
+    exitPlasmaBlockNumber: uint256 = self.exits[exitID].plasmaBlockNumber
 
     # check exit exiter is indeed recipient
     depositer: address = self.deposits[depositEnd].depositer
     assert depositer == exiter
 
     #check the inclusion was indeed at this block
-    bn: uint256 = self.deposits[depositEnd].precedingPlasmaBlock
-    assert exitPlasmaBlock == bn
+    depositBlockNumber: uint256 = self.deposits[depositEnd].precedingPlasmaBlockNumber
+    assert exitPlasmaBlockNumber == depositBlockNumber
 
     # response was successful
     clear(self.inclusionChallenges[challengeID])
@@ -646,8 +646,8 @@ def challengeSpentCoin(
     transactionProofEncoding: bytes[1749],
 ):
     # check we can still challenge
-    exitEthBlock: uint256 = self.exits[exitID].ethBlock
-    assert block.number < exitEthBlock + SPENTCOIN_CHALLENGE_PERIOD
+    exitethBlockNumberNumber: uint256 = self.exits[exitID].ethBlockNumber
+    assert block.number < exitethBlockNumberNumber + SPENTCOIN_CHALLENGE_PERIOD
 
     transferStart: uint256 # these will be the ones at the trIndex we are being asked about by the exit game
     transferEnd: uint256
@@ -668,12 +668,12 @@ def challengeSpentCoin(
     )
 
     exiter: address = self.exits[exitID].exiter
-    exitPlasmaBlock: uint256 = self.exits[exitID].plasmaBlock
+    exitPlasmaBlockNumber: uint256 = self.exits[exitID].plasmaBlockNumber
     exitStart: uint256 = self.exits[exitID].start
     exitEnd: uint256 = self.exits[exitID].end
 
     # check the coinspend came after the exit block
-    assert bn > exitPlasmaBlock
+    assert bn > exitPlasmaBlockNumber
 
     # check the coinspend intersects both the exit and proven transfer
     assert coinID >= exitStart
@@ -697,11 +697,11 @@ def challengeInvalidHistory(
     blockNumber: uint256
 ):
     # check we can still challenge
-    exitEthBlock: uint256 = self.exits[exitID].ethBlock
-    assert block.number < exitEthBlock + CHALLENGE_PERIOD
+    exitethBlockNumberNumber: uint256 = self.exits[exitID].ethBlockNumber
+    assert block.number < exitethBlockNumberNumber + CHALLENGE_PERIOD
 
     # check the coinspend came before the exit block
-    assert blockNumber < self.exits[exitID].plasmaBlock
+    assert blockNumber < self.exits[exitID].plasmaBlockNumber
 
     # check the coinspend intersects the exit
     assert coinID >= self.exits[exitID].start
@@ -771,7 +771,7 @@ def challengeInvalidHistoryWithDeposit(
     assert depositer != ZERO_ADDRESS # make sure the deposit was really set/valid
 
     depositStart: uint256 = self.deposits[depositEnd].start
-    depositBlock: uint256 = self.deposits[depositEnd].precedingPlasmaBlock
+    depositBlockNumber: uint256 = self.deposits[depositEnd].precedingPlasmaBlockNumber
 
     self.challengeInvalidHistory(
         exitID,
@@ -779,7 +779,7 @@ def challengeInvalidHistoryWithDeposit(
         depositer,
         depositStart,
         depositEnd,
-        depositBlock
+        depositBlockNumber
     )
 
 @public
@@ -814,14 +814,14 @@ def respondInvalidHistoryTransaction(
     chalBlockNumber: uint256 = self.invalidHistoryChallenges[challengeID].blockNumber
 
     exitID: uint256 = self.invalidHistoryChallenges[challengeID].exitID
-    exitPlasmaBlock: uint256 = self.exits[exitID].plasmaBlock
+    exitPlasmaBlockNumber: uint256 = self.exits[exitID].plasmaBlockNumber
 
     # check exit the response's sender is indeed the challenge's recipient
     assert chalRecipient == transferSender
 
     # check the response was between exit and challenge
     assert bn > chalBlockNumber
-    assert bn <= exitPlasmaBlock
+    assert bn <= exitPlasmaBlockNumber
 
     # response was successful
     clear(self.invalidHistoryChallenges[challengeID])
@@ -838,12 +838,12 @@ def respondInvalidHistoryDeposit(
     chalBlockNumber: uint256 = self.invalidHistoryChallenges[challengeID].blockNumber
 
     exitID: uint256 = self.invalidHistoryChallenges[challengeID].exitID
-    exitPlasmaBlock: uint256 = self.exits[exitID].plasmaBlock
+    exitPlasmaBlockNumber: uint256 = self.exits[exitID].plasmaBlockNumber
 
-    depositBlockNumber: uint256 = self.deposits[depositEnd].precedingPlasmaBlock
+    depositBlockNumber: uint256 = self.deposits[depositEnd].precedingPlasmaBlockNumber
     # check the response was between exit and challenge
     assert depositBlockNumber > chalBlockNumber
-    assert depositBlockNumber <= exitPlasmaBlock
+    assert depositBlockNumber <= exitPlasmaBlockNumber
 
     # response was successful
     clear(self.invalidHistoryChallenges[challengeID])
