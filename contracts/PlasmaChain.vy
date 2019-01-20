@@ -361,6 +361,7 @@ def checkTransferProofAndGetBounds(
 COINID_BYTES: constant(int128) = 16
 PROOF_MAX_LENGTH: constant(uint256) = 384 # 384 = TREENODE_LEN (48) * MAX_TREE_DEPTH (8) 
 ENCODING_LENGTH_PER_TRANSFER: constant(int128) = 165
+
 @public
 def checkTransactionProofAndGetTransfer(
         transactionEncoding: bytes[277],
@@ -442,7 +443,7 @@ def checkTransactionProofAndGetTransfer(
 @public
 def setup(_operator: address):
     self.operator = _operator
-    self.nextPlasmaBlockNumber = 0
+    self.nextPlasmaBlockNumber = 1 # starts at 1 so deposits before the first block have a precedingPlasmaBlock of 0 since it can't be negative (it's a uint)
     self.exitNonce = 0
     self.lastPublish = 0
     self.challengeNonce = 0
@@ -678,13 +679,48 @@ def challengeSpentCoin(
     # if all these passed, the coin was indeed spent.  CANCEL!
     clear(self.exits[exitID])
 
-@public
+@private
 def challengeInvalidHistory(
+    exitID: uint256,
+    coinID: uint256,
+    claimant: address,
+    start: uint256,
+    end: uint256,
+    blockNumber: uint256
+):
+    # check the coinspend came before the exit block
+    assert blockNumber < self.exits[exitID].plasmaBlock
+
+    # check the coinspend intersects the exit
+    assert coinID >= self.exits[exitID].start
+    assert coinID < self.exits[exitID].end
+    # check the coinspend intersects the proven transfer
+    assert coinID >= start
+    assert coinID < end
+
+    # check the exit being challenged exists
+    assert exitID < self.exitNonce
+
+    # get and increment challengeID
+    challengeID: uint256 = self.challengeNonce
+    self.exits[exitID].challengeCount += 1
+    
+    self.challengeNonce += 1
+
+    # store challenge
+    self.invalidHistoryChallenges[challengeID].ongoing = True
+    self.invalidHistoryChallenges[challengeID].exitID = exitID
+    self.invalidHistoryChallenges[challengeID].coinID = coinID
+    self.invalidHistoryChallenges[challengeID].recipient = claimant
+    self.invalidHistoryChallenges[challengeID].blockNumber = blockNumber
+
+@public
+def challengeInvalidHistoryWithTransaction(
     exitID: uint256,
     coinID: uint256,
     transferIndex: int128,
     transactionEncoding: bytes[277],
-    transactionProofEncoding: bytes[1749],
+    transactionProofEncoding: bytes[1749]
 ):
     transferStart: uint256 # these will be the ones at the trIndex we are being asked about by the exit game
     transferEnd: uint256
@@ -704,31 +740,35 @@ def challengeInvalidHistory(
         transferIndex
     )
 
-    # check the coinspend came before the exit block
-    assert bn < self.exits[exitID].plasmaBlock
+    self.challengeInvalidHistory(
+        exitID,
+        coinID,
+        transferRecipient,
+        transferStart,
+        transferEnd,
+        bn
+    )
 
-    # check the coinspend intersects the exit
-    assert coinID >= self.exits[exitID].start
-    assert coinID < self.exits[exitID].end
-    # check the coinspend intersects the proven transfer
-    assert coinID >= transferStart
-    assert coinID < transferEnd
+@public
+def challengeInvalidHistoryWithDeposit(
+    exitID: uint256,
+    coinID: uint256,
+    depositEnd: uint256
+):
+    depositer: address = self.deposits[depositEnd].depositer
+    assert depositer != ZERO_ADDRESS # make sure the deposit was really set/valid
 
-    # check the exit being challenged exists
-    assert exitID < self.exitNonce
+    depositStart: uint256 = self.deposits[depositEnd].start
+    depositBlock: uint256 = self.deposits[depositEnd].precedingPlasmaBlock
 
-    # get and increment challengeID
-    challengeID: uint256 = self.challengeNonce
-    self.exits[exitID].challengeCount += 1
-    
-    self.challengeNonce += 1
-
-    # store challenge
-    self.invalidHistoryChallenges[challengeID].ongoing = True
-    self.invalidHistoryChallenges[challengeID].exitID = exitID
-    self.invalidHistoryChallenges[challengeID].coinID = coinID
-    self.invalidHistoryChallenges[challengeID].recipient = transferRecipient
-    self.invalidHistoryChallenges[challengeID].blockNumber = bn
+    self.challengeInvalidHistory(
+        exitID,
+        coinID,
+        depositer,
+        depositStart,
+        depositEnd,
+        depositBlock
+    )
 
 @public
 def respondInvalidHistoryTransaction(
@@ -767,7 +807,7 @@ def respondInvalidHistoryTransaction(
     # check exit the response's sender is indeed the challenge's recipient
     assert chalRecipient == transferSender
 
-    #check the response was between exit and challenge
+    # check the response was between exit and challenge
     assert bn > chalBlockNumber
     assert bn <= exitPlasmaBlock
 
@@ -780,7 +820,7 @@ def respondInvalidHistoryDeposit(
     challengeID: uint256,
     depositEnd: uint256
 ):
-    #assert self.invalidHistoryChallenges[challengeID].ongoing
+    assert self.invalidHistoryChallenges[challengeID].ongoing
 
     chalRecipient: address = self.invalidHistoryChallenges[challengeID].recipient
     chalBlockNumber: uint256 = self.invalidHistoryChallenges[challengeID].blockNumber
@@ -789,7 +829,7 @@ def respondInvalidHistoryDeposit(
     exitPlasmaBlock: uint256 = self.exits[exitID].plasmaBlock
 
     depositBlockNumber: uint256 = self.deposits[depositEnd].precedingPlasmaBlock
-    #check the response was between exit and challenge
+    # check the response was between exit and challenge
     assert depositBlockNumber > chalBlockNumber
     assert depositBlockNumber <= exitPlasmaBlock
 
