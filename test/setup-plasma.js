@@ -108,10 +108,14 @@ const getSequentialTxs = (n) => {
 let bytecode, abi, plasma, operatorSetup, freshContractSnapshot
 
 async function setupPlasma () {
-  [bytecode, abi] = await compilePlasmaContract()
+  require('../compile-contracts')
+  const contract = require('../compiled-contracts/plasma-chain.js')
+  bytecode = contract.bytecode
+  abi = contract.abi
+
   const addr = web3.eth.accounts.wallet[0].address
 
-  const plasmaCt = new web3.eth.Contract(JSON.parse(abi), addr, { from: addr, gas: 5500000, gasPrice: '300000' })
+  const plasmaCt = new web3.eth.Contract(abi, addr, { from: addr, gas: 5500000, gasPrice: '300000' })
 
   await mineBlock()
   // Now try to deploy
