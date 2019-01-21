@@ -25,5 +25,6 @@ module.exports = {
   fs.writeFileSync('compiled-contracts/plasma-registry.js', plasmaRegistryJS)
 }
 
-compileContracts()
-console.log('Compiling contracts...')
+module.exports = {
+  compileContracts: compileContracts
+}
