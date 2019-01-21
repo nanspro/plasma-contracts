@@ -1,7 +1,8 @@
 DepositEvent: event({depositer: indexed(address), depositAmount: uint256})
 SubmitBlockEvent: event({blockNumber: indexed(uint256), blockhash: indexed(bytes32)})
 BeginExitEvent: event(start: indexed(uint256), end: indexed(uint256), exiter: address, exitID: uint256)
-FinalizeExitEvent: event(exitStart: uint256)
+FinalizeExitEvent: event(exitableEnd: uint256, exitID: uint256)
+ChallengeEvent: event(exitID: uint256, challengeID: indexed(uint256))
 
 struct deposit:
     start: uint256
@@ -459,6 +460,10 @@ def submitBlock(newBlockHash: bytes32):
     assert msg.sender == self.operator
     assert block.number >= self.lastPublish + PLASMA_BLOCK_INTERVAL
 
+    #log the event for clients to check for
+    log.SubmitBlockEvent(self.nextPlasmaBlockNumber, newBlockHash)
+
+    # add the block to the contract
     self.blockHashes[self.nextPlasmaBlockNumber] = newBlockHash
     self.nextPlasmaBlockNumber += 1
     self.lastPublish = block.number
@@ -479,16 +484,22 @@ def submitDeposit():
     clear(self.exitable[oldEnd]) # delete old exitable range
     self.exitable[self.totalDeposited] = oldRange #make exitable
 
+    depositer: address = msg.sender
     self.deposits[self.totalDeposited].start = oldEnd # the range (oldEnd, newTotalDeposited) was deposited by the depositer
-    self.deposits[self.totalDeposited].depositer = msg.sender
+    self.deposits[self.totalDeposited].depositer = depositer
     self.deposits[self.totalDeposited].precedingPlasmaBlockNumber = self.nextPlasmaBlockNumber - 1
+
+    # log the deposit so operator can take note
+    log.DepositEvent: event(depositer, depositAmount)
 
 @public
 def beginExit(blockNumber: uint256, start: uint256, end: uint256) -> uint256:
     assert blockNumber < self.nextPlasmaBlockNumber
 
+    exiter: address = msg.sender
+
     exitID: uint256 = self.exitNonce
-    self.exits[exitID].exiter = msg.sender
+    self.exits[exitID].exiter = exiter
     self.exits[exitID].plasmaBlockNumber = blockNumber
     self.exits[exitID].ethBlockNumber = block.number
     self.exits[exitID].start = start
@@ -497,6 +508,10 @@ def beginExit(blockNumber: uint256, start: uint256, end: uint256) -> uint256:
 
     self.exitNonce += 1
     return exitID
+
+    #log the event
+    log.BeginExitEvent(start, end, exiter, exitID)
+
 
 @public
 def checkRangeExitable(start: uint256, end: uint256, claimedExitableEnd: uint256):
@@ -522,7 +537,7 @@ def removeFromExitable(start: uint256, end: uint256, exitableEnd: uint256):
             self.exitable[end].start = end # start = end so won't ever be exitable, but allows for new deposit logic to work
 
 @public
-def finalizeExit(exitID: uint256, exitableEnd: uint256) -> uint256:
+def finalizeExit(exitID: uint256, exitableEnd: uint256):
     exiter: address = self.exits[exitID].exiter
     exitethBlockNumber: uint256 = self.exits[exitID].ethBlockNumber
     exitStart: uint256  = self.exits[exitID].start
@@ -537,7 +552,10 @@ def finalizeExit(exitID: uint256, exitableEnd: uint256) -> uint256:
 
     exitValue: wei_value = as_wei_value(exitEnd - exitStart, "wei")
     send(exiter, exitValue)
-    return exitEnd
+
+    # log the event    
+    log.FinalizeExitEvent(exitableEnd, exitID)
+
 
 @public
 def challengeBeforeDeposit(
@@ -575,6 +593,9 @@ def challengeInclusion(exitID: uint256):
     self.exits[exitID].challengeCount += 1
 
     self.challengeNonce += 1
+
+    # log the event so clients can respond
+    log.ChallengeEvent: event(exitID, challengeID)
 
 @public
 def respondTransactionInclusion(
@@ -728,6 +749,9 @@ def challengeInvalidHistory(
     self.invalidHistoryChallenges[challengeID].coinID = coinID
     self.invalidHistoryChallenges[challengeID].recipient = claimant
     self.invalidHistoryChallenges[challengeID].blockNumber = blockNumber
+
+    # log the event so clients can respond
+    log.ChallengeEvent: event(exitID, challengeID)
 
 @public
 def challengeInvalidHistoryWithTransaction(
