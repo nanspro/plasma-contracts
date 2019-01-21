@@ -1,4 +1,7 @@
-#TODO: always check uints greater than 0?
+DepositEvent: event({depositer: indexed(address), depositAmount: uint256})
+SubmitBlockEvent: event({blockNumber: indexed(uint256), blockhash: indexed(bytes32)})
+BeginExitEvent: event(start: indexed(uint256), end: indexed(uint256), exiter: address, exitID: uint256)
+FinalizeExitEvent: event(exitStart: uint256)
 
 struct deposit:
     start: uint256
