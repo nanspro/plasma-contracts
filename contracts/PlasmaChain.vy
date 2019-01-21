@@ -1,9 +1,3 @@
-DepositEvent: event({depositer: indexed(address), depositAmount: uint256})
-SubmitBlockEvent: event({blockNumber: indexed(uint256), blockhash: indexed(bytes32)})
-BeginExitEvent: event(start: indexed(uint256), end: indexed(uint256), exiter: address, exitID: uint256)
-FinalizeExitEvent: event(exitableEnd: uint256, exitID: uint256)
-ChallengeEvent: event(exitID: uint256, challengeID: indexed(uint256))
-
 struct deposit:
     start: uint256
     depositer: address
@@ -31,6 +25,12 @@ struct invalidHistoryChallenge:
     blockNumber: uint256
     recipient: address
     ongoing: bool
+
+DepositEvent: event({depositer: indexed(address), depositAmount: uint256})
+SubmitBlockEvent: event({blockNumber: indexed(uint256), submittedHash: indexed(bytes32)})
+BeginExitEvent: event({start: indexed(uint256), end: indexed(uint256), exiter: address, exitID: uint256})
+FinalizeExitEvent: event({exitableEnd: uint256, exitID: uint256})
+ChallengeEvent: event({exitID: uint256, challengeID: indexed(uint256)})
 
 operator: public(address)
 nextPlasmaBlockNumber: public(uint256)
@@ -490,7 +490,7 @@ def submitDeposit():
     self.deposits[self.totalDeposited].precedingPlasmaBlockNumber = self.nextPlasmaBlockNumber - 1
 
     # log the deposit so operator can take note
-    log.DepositEvent: event(depositer, depositAmount)
+    log.DepositEvent(depositer, depositAmount)
 
 @public
 def beginExit(blockNumber: uint256, start: uint256, end: uint256) -> uint256:
@@ -595,7 +595,7 @@ def challengeInclusion(exitID: uint256):
     self.challengeNonce += 1
 
     # log the event so clients can respond
-    log.ChallengeEvent: event(exitID, challengeID)
+    log.ChallengeEvent(exitID, challengeID)
 
 @public
 def respondTransactionInclusion(
@@ -751,7 +751,7 @@ def challengeInvalidHistory(
     self.invalidHistoryChallenges[challengeID].blockNumber = blockNumber
 
     # log the event so clients can respond
-    log.ChallengeEvent: event(exitID, challengeID)
+    log.ChallengeEvent(exitID, challengeID)
 
 @public
 def challengeInvalidHistoryWithTransaction(
