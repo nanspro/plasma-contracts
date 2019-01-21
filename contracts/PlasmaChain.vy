@@ -1,5 +1,14 @@
 #TODO: always check uints greater than 0?
 
+struct deposit:
+    start: uint256
+    depositer: address
+    precedingPlasmaBlockNumber: uint256
+
+struct exitableRange:
+    start: uint256
+    isSet: bool
+
 struct Exit:
     exiter: address
     plasmaBlockNumber: uint256
@@ -18,15 +27,6 @@ struct invalidHistoryChallenge:
     blockNumber: uint256
     recipient: address
     ongoing: bool
-
-struct deposit:
-    start: uint256
-    depositer: address
-    precedingPlasmaBlockNumber: uint256
-
-struct exitableRange:
-    start: uint256
-    isSet: bool
 
 operator: public(address)
 nextPlasmaBlockNumber: public(uint256)
