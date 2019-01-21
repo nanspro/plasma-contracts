@@ -26,16 +26,16 @@
   "homepage": "https://github.com/plasma-group/plasma-contracts#readme",
   "dependencies": {
     "ganache-cli": "^6.2.5",
-    "plasma-utils": "git+ssh://git@github.com/plasma-group/plasma-utils.git",
+    "plasma-utils": "git@github.com:plasma-group/plasma-utils.git",
     "web3": "^1.0.0-beta.37"
   },
   "devDependencies": {
     "chai": "^4.2.0",
     "debug": "^4.1.1",
-    "eslint": "^5.11.1",
+    "eslint": "^5.12.0",
     "eslint-config-standard": "^12.0.0",
     "eslint-plugin-import": "^2.14.0",
-    "eslint-plugin-node": "^8.0.0",
+    "eslint-plugin-node": "^8.0.1",
     "eslint-plugin-promise": "^4.0.1",
     "eslint-plugin-standard": "^4.0.0",
     "mocha": "^5.2.0"
