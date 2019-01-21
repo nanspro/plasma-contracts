@@ -108,7 +108,7 @@ const getSequentialTxs = (n) => {
 let bytecode, abi, plasma, operatorSetup, freshContractSnapshot
 
 async function setupPlasma () {
-  require('../compile-contracts')
+  await require('../compile-contracts').compileContracts()
   const contract = require('../compiled-contracts/plasma-chain.js')
   bytecode = contract.bytecode
   abi = contract.abi
