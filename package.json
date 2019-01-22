@@ -7,7 +7,7 @@
     "test": "test"
   },
   "scripts": {
-    "test": "mocha",
+    "test": "mocha --timeout 10000",
     "test-debug": "mocha debug",
     "lint": "./node_modules/.bin/eslint test/"
   },
