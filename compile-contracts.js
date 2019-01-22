@@ -21,8 +21,8 @@ module.exports = {
 }
 `
   console.log('Compiled contracts! Saving them to ./compiled-contracts')
-  fs.writeFileSync('compiled-contracts/plasma-chain.js', plasmaChainJS)
-  fs.writeFileSync('compiled-contracts/plasma-registry.js', plasmaRegistryJS)
+  await fs.writeFileSync('compiled-contracts/plasma-chain.js', plasmaChainJS)
+  await fs.writeFileSync('compiled-contracts/plasma-registry.js', plasmaRegistryJS)
 }
 
 module.exports = {
