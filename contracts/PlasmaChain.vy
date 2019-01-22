@@ -404,7 +404,6 @@ def checkTransactionProofAndGetTransfer(
         implicitStart: uint256
         implicitEnd: uint256
 
-
         (implicitStart, implicitEnd) = self.checkTransferProofAndGetBounds(
             leafHash,
             plasmaBlockNumber,

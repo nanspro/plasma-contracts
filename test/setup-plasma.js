@@ -1,4 +1,3 @@
-const compilePlasmaContract = require('../index.js')
 const ganache = require('ganache-cli')
 const Web3 = require('web3')
 const BN = Web3.utils.BN
