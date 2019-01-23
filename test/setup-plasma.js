@@ -127,7 +127,8 @@ async function setupPlasma () {
   // const block = await web3.eth.getBlock('latest')
   // const deploymentTransaction = await web3.eth.getTransaction(block.transactions[0]) // eslint-disable-line no-unused-vars
   const maxCoinsPerToken = '0xffffffffffffffffffffffff' // 12 bytes filled for max untyped start
-  operatorSetup = await plasma.methods.setup(web3.eth.accounts.wallet[0].address, maxCoinsPerToken).send()
+  const weiPerCoin = 1 // so it'll be wei
+  operatorSetup = await plasma.methods.setup(web3.eth.accounts.wallet[0].address, weiPerCoin, maxCoinsPerToken).send()
   freshContractSnapshot = await getCurrentChainSnapshot()
   return [bytecode, abi, plasma, operatorSetup, freshContractSnapshot]
 }

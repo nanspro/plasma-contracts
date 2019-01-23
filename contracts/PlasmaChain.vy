@@ -11,6 +11,7 @@ struct Exit:
     exiter: address
     plasmaBlockNumber: uint256
     ethBlockNumber: uint256
+    tokenType: uint256
     start: uint256
     end: uint256
     challengeCount: uint256
@@ -26,27 +27,51 @@ struct invalidHistoryChallenge:
     recipient: address
     ongoing: bool
 
-DepositEvent: event({depositer: indexed(address), depositAmount: uint256})
+struct tokenListing:
+    # formula: ERC20 amount = (plasma coin amount * 10^decimalOffset)
+    decimalOffset:  uint256 # the denomination offset between the plasma-wrapped coins and the ERC20's decimals.
+    # address of the ERC20
+    contractAddress: address
+
+contract ERC20:
+    def transferFrom(_from: address, _to: address, _value: uint256) -> bool: modifying
+    def transfer(_to: address, _value: uint256) -> bool: modifying
+
+
+# Events to log in web3
+ListingEvent: event({tokenAddress: address})
+DepositEvent: event({depositer: indexed(address), depositAmount: uint256, tokenType: uint256})
 SubmitBlockEvent: event({blockNumber: indexed(uint256), submittedHash: indexed(bytes32)})
 BeginExitEvent: event({start: indexed(uint256), end: indexed(uint256), exiter: address, exitID: uint256})
 FinalizeExitEvent: event({exitableEnd: uint256, exitID: uint256})
 ChallengeEvent: event({exitID: uint256, challengeID: indexed(uint256)})
 
+# operator related publics
 operator: public(address)
 nextPlasmaBlockNumber: public(uint256)
 lastPublish: public(uint256) # ethereum block number of most recent plasma block
 blockHashes: public(map(uint256, bytes32))
 
+# token related publics
+listings: public(map(uint256, tokenListing))
+listingNonce: public(uint256)
+listed: public(map(address, uint256)) #which address is what token type
+
+weiPerCoin: public(uint256)
+
+# deposit and exit related publics
 exits: public(map(uint256, Exit))
 exitNonce: public(uint256)
-challengeNonce: public(uint256)
-
-exitable: public(map(uint256, exitableRange)) # end -> start because it makes for cleaner code
-deposits: public(map(uint256, deposit)) # also end -> start for consistency
+exitable: public(map(uint256, map(uint256, exitableRange))) # tokentype -> ( end -> start because it makes for cleaner code
+deposits: public(map(uint256, map(uint256, deposit))) # first val is tokentype. also has end -> start for consistency
 totalDeposited: public(uint256)
 
+# challenge-related publics
 inclusionChallenges: public(map(uint256, inclusionChallenge))
 invalidHistoryChallenges: public(map(uint256, invalidHistoryChallenge))
+challengeNonce: public(uint256)
+
+isSetup: public(bool)
 
 # period (of ethereum blocks) during which an exit can be challenged
 CHALLENGE_PERIOD: constant(uint256) = 20
@@ -54,6 +79,8 @@ CHALLENGE_PERIOD: constant(uint256) = 20
 SPENTCOIN_CHALLENGE_PERIOD: constant(uint256) = CHALLENGE_PERIOD / 2
 # minimum number of ethereum blocks between new plasma blocks
 PLASMA_BLOCK_INTERVAL: constant(uint256) = 0
+
+MAX_COINS_PER_TOKEN: public(uint256)
 
 MAX_TREE_DEPTH: constant(int128) = 8
 MAX_TRANSFERS: constant(uint256) = 4
@@ -415,9 +442,9 @@ def checkTransactionProofAndGetTransfer(
 
         (transferStart, transferEnd) = self.decodeTransferRange(transferEncoding)
 
-        assert implicitStart <= transferStart
-        assert transferStart < transferEnd
-        assert transferEnd <= implicitEnd
+        #assert implicitStart <= transferStart
+        #assert transferStart < transferEnd
+        #assert transferEnd <= implicitEnd
 
         v: bytes[1] # v
         r: bytes32 # r
@@ -444,15 +471,21 @@ def checkTransactionProofAndGetTransfer(
 ### BEGIN CONTRACT LOGIC ###
 
 @public
-def setup(_operator: address):
+def setup(_operator: address, ethDenomination: uint256, coinsPerToken: uint256): # last val should be properly hardcoded as a constant eventually
+    assert self.isSetup == False
     self.operator = _operator
     self.nextPlasmaBlockNumber = 1 # starts at 1 so deposits before the first block have a precedingPlasmaBlock of 0 since it can't be negative (it's a uint)
     self.exitNonce = 0
     self.lastPublish = 0
     self.challengeNonce = 0
     self.totalDeposited = 0
-    self.exitable[0].start = 0
-    self.exitable[0].isSet = True
+    self.exitable[0][0].isSet = True
+    self.listingNonce = 1 # first list is ETH baby!!!
+
+    self.MAX_COINS_PER_TOKEN = coinsPerToken
+    self.weiPerCoin = ethDenomination
+
+    self.isSetup = True
     
 @public
 def submitBlock(newBlockHash: bytes32):
@@ -467,32 +500,66 @@ def submitBlock(newBlockHash: bytes32):
     self.nextPlasmaBlockNumber += 1
     self.lastPublish = block.number
 
+@public
+def listToken(tokenAddress: address, denomination: uint256):
+    assert msg.sender == self.operator
+    
+    tokenType: uint256 = self.listingNonce
+    self.listingNonce += 1
+
+    self.listed[tokenAddress] = tokenType
+
+    self.listings[tokenType].decimalOffset = denomination
+    self.listings[tokenType].contractAddress = tokenAddress
+
+    self.exitable[tokenType][0].isSet = True # init the new token exitable ranges
+    log.ListingEvent(tokenAddress)
+
 ### BEGIN DEPOSITS AND EXITS SECTION ###
 
-@public
-@payable
-def submitDeposit():
-    depositAmount: uint256 = as_unitless_number(msg.value)
+@private
+def processDeposit(depositer: address, depositAmount: uint256, tokenType: uint256):
     assert depositAmount > 0
 
     oldEnd: uint256 = self.totalDeposited
-    oldRange: exitableRange = self.exitable[oldEnd] # remember, map is end -> start!
+    oldRange: exitableRange = self.exitable[tokenType][oldEnd] # remember, map is end -> start!
 
     self.totalDeposited += depositAmount # add deposit
     # removed, replace with per ERC -->    assert self.totalDeposited < MAX_END # make sure we're not at capacity
-    clear(self.exitable[oldEnd]) # delete old exitable range
-    self.exitable[self.totalDeposited] = oldRange #make exitable
+    clear(self.exitable[tokenType][oldEnd]) # delete old exitable range
+    self.exitable[tokenType][self.totalDeposited] = oldRange #make exitable
 
-    depositer: address = msg.sender
-    self.deposits[self.totalDeposited].start = oldEnd # the range (oldEnd, newTotalDeposited) was deposited by the depositer
-    self.deposits[self.totalDeposited].depositer = depositer
-    self.deposits[self.totalDeposited].precedingPlasmaBlockNumber = self.nextPlasmaBlockNumber - 1
+    self.deposits[tokenType][self.totalDeposited].start = oldEnd # the range (oldEnd, newTotalDeposited) was deposited by the depositer
+    self.deposits[tokenType][self.totalDeposited].depositer = depositer
+    self.deposits[tokenType][self.totalDeposited].precedingPlasmaBlockNumber = self.nextPlasmaBlockNumber - 1
 
     # log the deposit so operator can take note
-    log.DepositEvent(depositer, depositAmount)
+    log.DepositEvent(depositer, depositAmount, tokenType)
 
 @public
-def beginExit(blockNumber: uint256, start: uint256, end: uint256) -> uint256:
+@payable
+def depositETH():
+    depositAmount: uint256 = as_unitless_number(msg.value) / self.weiPerCoin
+    self.processDeposit(msg.sender, depositAmount, 0)
+
+@public
+def submitERC20Deposit(tokenAddress: address, depositSize: uint256):
+    depositer: address = msg.sender
+
+    tokenType: uint256 = self.listed[tokenAddress]
+    assert tokenType > 0 # make sure it's been listed
+
+    passed: bool = ERC20(tokenAddress).transferFrom(depositer, self, depositSize)
+    assert passed
+
+    tokenMultiplier: uint256 = 10**self.listings[tokenType].decimalOffset
+    depositInPlasmaCoins: uint256 = depositSize * tokenMultiplier
+    self.processDeposit(depositer, depositInPlasmaCoins, tokenType)
+
+#add process above
+
+@public
+def beginExit(tokenType: uint256, blockNumber: uint256, start: uint256, end: uint256) -> uint256:
     assert blockNumber < self.nextPlasmaBlockNumber
 
     exiter: address = msg.sender
@@ -501,6 +568,7 @@ def beginExit(blockNumber: uint256, start: uint256, end: uint256) -> uint256:
     self.exits[exitID].exiter = exiter
     self.exits[exitID].plasmaBlockNumber = blockNumber
     self.exits[exitID].ethBlockNumber = block.number
+    self.exits[exitID].tokenType = tokenType
     self.exits[exitID].start = start
     self.exits[exitID].end = end
     self.exits[exitID].challengeCount = 0
@@ -513,48 +581,58 @@ def beginExit(blockNumber: uint256, start: uint256, end: uint256) -> uint256:
 
 
 @public
-def checkRangeExitable(start: uint256, end: uint256, claimedExitableEnd: uint256):
-    assert end <= claimedExitableEnd
-    assert start >= self.exitable[claimedExitableEnd].start
-    assert self.exitable[claimedExitableEnd].isSet
+def checkRangeExitable(tokenType: uint256, untypedStart: uint256, untypedEnd: uint256, claimedExitableEnd: uint256):
+    assert untypedEnd <= self.MAX_COINS_PER_TOKEN
+    assert untypedEnd <= claimedExitableEnd
+    assert untypedStart >= self.exitable[0][claimedExitableEnd].start
+    assert self.exitable[tokenType][claimedExitableEnd].isSet
 
 # this function updates the exitable ranges to reflect a newly finalized exit.
 @public # make private once tested!!!!
-def removeFromExitable(start: uint256, end: uint256, exitableEnd: uint256):
-    oldStart: uint256 = self.exitable[exitableEnd].start
+def removeFromExitable(tokenType: uint256, start: uint256, end: uint256, exitableEnd: uint256):
+    oldStart: uint256 = self.exitable[0][exitableEnd].start
     #todo fix/check  the case with totally filled exit finalization
     if start != oldStart: # then we have a new exitable region to the left
-        self.exitable[start].start = oldStart # new exitable range from oldstart to the start of the exit (which has just become the end of the new exitable range)
-        self.exitable[start].isSet = True
+        self.exitable[tokenType][start].start = oldStart # new exitable range from oldstart to the start of the exit (which has just become the end of the new exitable range)
+        self.exitable[tokenType][start].isSet = True
     if end != exitableEnd: # then we have leftovers to the right which are exitable
-        self.exitable[exitableEnd].start = end # and it starts at the end of the finalized exit!
-        self.exitable[exitableEnd].isSet = True
+        self.exitable[tokenType][exitableEnd].start = end # and it starts at the end of the finalized exit!
+        self.exitable[tokenType][exitableEnd].isSet = True
     else: # otherwise, no leftovers on the right, so we can delete the map entry...
         if end != self.totalDeposited: # ...UNLESS it's the rightmost deposited value, which we need to keep (even though it will be "empty", i.e. have start == end,because submitDeposit() uses it to make the new deposit exitable)
-            clear(self.exitable[end])
+            clear(self.exitable[tokenType][end])
         else: # and if it is the rightmost, 
-            self.exitable[end].start = end # start = end so won't ever be exitable, but allows for new deposit logic to work
+            self.exitable[tokenType][end].start = end # start = end so won't ever be exitable, but allows for new deposit logic to work
+
 
 @public
 def finalizeExit(exitID: uint256, exitableEnd: uint256):
     exiter: address = self.exits[exitID].exiter
-    exitethBlockNumber: uint256 = self.exits[exitID].ethBlockNumber
+    exitETHBlockNumber: uint256 = self.exits[exitID].ethBlockNumber
+    exitToken: uint256 = 0
     exitStart: uint256  = self.exits[exitID].start
     exitEnd: uint256 = self.exits[exitID].end
     challengeCount: uint256 = self.exits[exitID].challengeCount
-
-    self.checkRangeExitable(exitStart, exitEnd, exitableEnd)
-    self.removeFromExitable(exitStart, exitEnd, exitableEnd)
+    tokenType: uint256 = self.exits[exitID].tokenType
 
     assert challengeCount == 0
-    assert block.number > exitethBlockNumber + CHALLENGE_PERIOD
+    assert block.number > exitETHBlockNumber + CHALLENGE_PERIOD
 
-    exitValue: wei_value = as_wei_value(exitEnd - exitStart, "wei")
-    send(exiter, exitValue)
+    self.checkRangeExitable(tokenType, exitStart, exitEnd, exitableEnd)
+    self.removeFromExitable(tokenType, exitStart, exitEnd, exitableEnd)
+
+    if tokenType == 0: # then we're exiting ETH
+        exitValue: uint256 = (exitEnd - exitStart) * self.weiPerCoin
+        send(exiter, as_wei_value(exitValue, "wei"))
+    else: #then we're exiting ERC
+        tokenMultiplier: uint256 = 10**self.listings[tokenType].decimalOffset
+        exitValue: uint256 = (exitEnd - exitStart) / tokenMultiplier
+        
+        passed: bool = ERC20(self.listings[tokenType].contractAddress).transfer(exiter, exitValue)
+        assert passed
 
     # log the event    
     log.FinalizeExitEvent(exitableEnd, exitID)
-
 
 @public
 def challengeBeforeDeposit(
@@ -563,10 +641,10 @@ def challengeBeforeDeposit(
     depositEnd: uint256
 ):
     # note: this can always be challenged because no response and all info on-chain, no invalidity period needed
-    depositPrecedingPlasmaBlock: uint256 = self.deposits[depositEnd].precedingPlasmaBlockNumber
-    assert self.deposits[depositEnd].depositer != ZERO_ADDRESS # requires the deposit to be a valid deposit and not something unset
+    depositPrecedingPlasmaBlock: uint256 = self.deposits[0][depositEnd].precedingPlasmaBlockNumber
+    assert self.deposits[0][depositEnd].depositer != ZERO_ADDRESS # requires the deposit to be a valid deposit and not something unset
     
-    depositStart: uint256 = self.deposits[depositEnd].start
+    depositStart: uint256 = self.deposits[0][depositEnd].start
 
     assert coinID >= depositStart
     assert coinID < depositEnd
@@ -649,11 +727,11 @@ def respondDepositInclusion(
     exitPlasmaBlockNumber: uint256 = self.exits[exitID].plasmaBlockNumber
 
     # check exit exiter is indeed recipient
-    depositer: address = self.deposits[depositEnd].depositer
+    depositer: address = self.deposits[0][depositEnd].depositer
     assert depositer == exiter
 
     #check the inclusion was indeed at this block
-    depositBlockNumber: uint256 = self.deposits[depositEnd].precedingPlasmaBlockNumber
+    depositBlockNumber: uint256 = self.deposits[0][depositEnd].precedingPlasmaBlockNumber
     assert exitPlasmaBlockNumber == depositBlockNumber
 
     # response was successful
@@ -793,11 +871,11 @@ def challengeInvalidHistoryWithDeposit(
     coinID: uint256,
     depositEnd: uint256
 ):
-    depositer: address = self.deposits[depositEnd].depositer
+    depositer: address = self.deposits[0][depositEnd].depositer
     assert depositer != ZERO_ADDRESS # make sure the deposit was really set/valid
 
-    depositStart: uint256 = self.deposits[depositEnd].start
-    depositBlockNumber: uint256 = self.deposits[depositEnd].precedingPlasmaBlockNumber
+    depositStart: uint256 = self.deposits[0][depositEnd].start
+    depositBlockNumber: uint256 = self.deposits[0][depositEnd].precedingPlasmaBlockNumber
 
     self.challengeInvalidHistory(
         exitID,
@@ -866,7 +944,7 @@ def respondInvalidHistoryDeposit(
     exitID: uint256 = self.invalidHistoryChallenges[challengeID].exitID
     exitPlasmaBlockNumber: uint256 = self.exits[exitID].plasmaBlockNumber
 
-    depositBlockNumber: uint256 = self.deposits[depositEnd].precedingPlasmaBlockNumber
+    depositBlockNumber: uint256 = self.deposits[0][depositEnd].precedingPlasmaBlockNumber
     # check the response was between exit and challenge
     assert depositBlockNumber > chalBlockNumber
     assert depositBlockNumber <= exitPlasmaBlockNumber
