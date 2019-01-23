@@ -114,7 +114,7 @@ async function setupPlasma () {
 
   const addr = web3.eth.accounts.wallet[0].address
 
-  const plasmaCt = new web3.eth.Contract(abi, addr, { from: addr, gas: 5500000, gasPrice: '300000' })
+  const plasmaCt = new web3.eth.Contract(abi, addr, { from: addr, gas: 6000000, gasPrice: '300000' })
 
   await mineBlock()
   // Now try to deploy
@@ -126,7 +126,8 @@ async function setupPlasma () {
     */
   // const block = await web3.eth.getBlock('latest')
   // const deploymentTransaction = await web3.eth.getTransaction(block.transactions[0]) // eslint-disable-line no-unused-vars
-  operatorSetup = await plasma.methods.setup(web3.eth.accounts.wallet[0].address).send()
+  const maxCoinsPerToken = '0xffffffffffffffffffffffff' // 12 bytes filled for max untyped start
+  operatorSetup = await plasma.methods.setup(web3.eth.accounts.wallet[0].address, maxCoinsPerToken).send()
   freshContractSnapshot = await getCurrentChainSnapshot()
   return [bytecode, abi, plasma, operatorSetup, freshContractSnapshot]
 }
@@ -138,7 +139,7 @@ async function setupToken () {
   tokenBytecode = contract.bytecode
   tokenAbi = contract.abi
 
-  const addr = web3.eth.accounts.wallet[0].address
+  const addr = web3.eth.accounts.wallet[1].address
 
   const tokenCt = new web3.eth.Contract(tokenAbi, addr, { from: addr, gas: 5500000, gasPrice: '300000' })
 
@@ -158,14 +159,7 @@ async function setupToken () {
       ],
       data: tokenBytecode
     }
-  ).send() /* {
-        from: addr,
-        gas: 2500000,
-        gasPrice: '300000'
-    })
-    */
-  // const block = await web3.eth.getBlock('latest')
-  // const deploymentTransaction = await web3.eth.getTransaction(block.transactions[0]) // eslint-disable-line no-unused-vars
+  ).send({ from: web3.eth.accounts.wallet[1].address }) // give all initial balance to alice
   return [tokenBytecode, tokenAbi, token]
 }
 

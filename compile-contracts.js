@@ -6,7 +6,7 @@ const compileTokenContract = compilation.compileTokenContract
 
 async function compileContracts () {
   let plasmaChainBytecode, plasmaChainAbi
-  [plasmaChainBytecode, plasmaChainAbi] = await compilePlasmaChainContract();
+  [plasmaChainBytecode, plasmaChainAbi] = await compilePlasmaChainContract()
 
   let plasmaRegistryBytecode, plasmaRegistryAbi
   [plasmaRegistryBytecode, plasmaRegistryAbi] = await compilePlasmaRegistryContract()
