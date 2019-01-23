@@ -131,6 +131,84 @@ async function setupPlasma () {
   return [bytecode, abi, plasma, operatorSetup, freshContractSnapshot]
 }
 
+let tokenBytecode, tokenAbi, token
+
+async function setupToken () {
+  const contract = require('../compiled-contracts/test-token.js')
+  tokenBytecode = contract.bytecode
+  tokenAbi = contract.abi
+
+  const addr = web3.eth.accounts.wallet[0].address
+
+  const tokenCt = new web3.eth.Contract(tokenAbi, addr, { from: addr, gas: 5500000, gasPrice: '300000' })
+
+  await mineBlock()
+  const name = asBytes32('BenCoin')
+  const ticker = asBytes32('BEN')
+  const decimals = 5
+  const totSupply = 100
+  debugger
+  // Now try to deploy
+  token = await tokenCt.deploy(
+    {
+      arguments: [
+        name,
+        ticker,
+        decimals,
+        totSupply
+      ],
+      data: tokenBytecode
+    }
+  ).send() /* {
+        from: addr,
+        gas: 2500000,
+        gasPrice: '300000'
+    })
+    */
+  // const block = await web3.eth.getBlock('latest')
+  // const deploymentTransaction = await web3.eth.getTransaction(block.transactions[0]) // eslint-disable-line no-unused-vars
+  return [tokenBytecode, tokenAbi, token]
+}
+
+// pads a string's utf8 byte representation to 32 bytes, as string '0x' + ...
+function asBytes32 (string) {
+  var utf8 = stringToUtf8ByteArray(string)
+  const remainingNumBytes = 32 - utf8.length
+  let pad = []
+  for (let i = 0; i < remainingNumBytes; i++) { pad.push(0) }
+  return '0x' + new BN(utf8.concat(pad)).toString('hex', 64)
+}
+
+// modified from https://github.com/google/closure-library/blob/e877b1eac410c0d842bcda118689759512e0e26f/closure/goog/crypt/crypt.js
+function stringToUtf8ByteArray (str) {
+  // TODO(user): Use native implementations if/when available
+  let out = []
+  let p = 0
+  for (let i = 0; i < str.length; i++) {
+    let c = str.charCodeAt(i)
+    if (c < 128) {
+      out[p++] = c
+    } else if (c < 2048) {
+      out[p++] = (c >> 6) | 192
+      out[p++] = (c & 63) | 128
+    } else if (
+      ((c & 0xFC00) === 0xD800) && (i + 1) < str.length &&
+      ((str.charCodeAt(i + 1) & 0xFC00) === 0xDC00)) {
+      // Surrogate Pair
+      c = 0x10000 + ((c & 0x03FF) << 10) + (str.charCodeAt(++i) & 0x03FF)
+      out[p++] = (c >> 18) | 240
+      out[p++] = ((c >> 12) & 63) | 128
+      out[p++] = ((c >> 6) & 63) | 128
+      out[p++] = (c & 63) | 128
+    } else {
+      out[p++] = (c >> 12) | 224
+      out[p++] = ((c >> 6) & 63) | 128
+      out[p++] = (c & 63) | 128
+    }
+  }
+  return out
+}
+
 module.exports = {
   getCurrentChainSnapshot,
   revertToChainSnapshot,
@@ -141,5 +219,6 @@ module.exports = {
   mineNBlocks,
   getSequentialTxs,
   setupPlasma,
+  setupToken,
   operatorSetup
 }
