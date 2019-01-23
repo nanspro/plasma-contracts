@@ -147,7 +147,6 @@ async function setupToken () {
   const ticker = asBytes32('BEN')
   const decimals = 5
   const totSupply = 100
-  debugger
   // Now try to deploy
   token = await tokenCt.deploy(
     {

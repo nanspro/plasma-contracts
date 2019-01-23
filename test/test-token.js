@@ -41,6 +41,8 @@ describe.only('ERC20 Token Support', () => {
     [
       tokenBytecode, tokenAbi, token
     ] = await setup.setupToken()
+    debugger
+    token
   })
 
   describe('Deployment', () => {
