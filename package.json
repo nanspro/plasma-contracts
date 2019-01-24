@@ -13,7 +13,7 @@
   },
   "husky": {
     "hooks": {
-      "pre-commit": "npm test && lint-staged"
+      "pre-commit": "npm test && git add compiled-contracts/ && lint-staged"
     }
   },
   "lint-staged": {
