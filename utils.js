@@ -17,10 +17,15 @@ async function compilePlasmaRegistryContract () {
   return compileVyper('./contracts/PlasmaRegistry.vy')
 }
 
+async function compileTokenContract () {
+  return compileVyper('./contracts/test-contracts/ERC20.vy')
+}
+
 module.exports = {
   contracts: {
     compileVyper,
     compilePlasmaChainContract,
-    compilePlasmaRegistryContract
+    compilePlasmaRegistryContract,
+    compileTokenContract
   }
 }

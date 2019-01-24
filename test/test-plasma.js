@@ -257,21 +257,21 @@ describe('Plasma Smart Contract', () => {
   describe('Deposits and Exits', () => {
     it('should allow a first deposit and add it to the deposits correctly', async () => {
       const depositSize = 50
-      await plasma.methods.submitDeposit().send({ value: depositSize, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
-      const exitableStart = await plasma.methods.exitable__start(depositSize).call()
-      const depositStart = await plasma.methods.deposits__start(depositSize).call()
-      const depositer = await plasma.methods.deposits__depositer(depositSize).call()
+      await plasma.methods.depositETH().send({ value: depositSize, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
+      const exitableStart = await plasma.methods.exitable__start(0, depositSize).call()
+      const depositStart = await plasma.methods.deposits__start(0, depositSize).call()
+      const depositer = await plasma.methods.deposits__depositer(0, depositSize).call()
       assert.equal(exitableStart, '0')
       assert.equal(depositStart, '0')
       assert.equal(depositer, web3.eth.accounts.wallet[1].address)
     })
     it('should allow a second deposit and add it to the deposits correctly', async () => {
       const depositSize = 500
-      await plasma.methods.submitDeposit().send({ value: depositSize, from: web3.eth.accounts.wallet[2].address, gas: 4000000 })
+      await plasma.methods.depositETH().send({ value: depositSize, from: web3.eth.accounts.wallet[2].address, gas: 4000000 })
       const depositEnd = 550 // 550 hardcoded from above deposit of 50
-      const exitableStart = await plasma.methods.exitable__start(depositEnd).call()
-      const depositStart = await plasma.methods.deposits__start(depositEnd).call()
-      const depositer = await plasma.methods.deposits__depositer(depositEnd).call()
+      const exitableStart = await plasma.methods.exitable__start(0, depositEnd).call()
+      const depositStart = await plasma.methods.deposits__start(0, depositEnd).call()
+      const depositer = await plasma.methods.deposits__depositer(0, depositEnd).call()
       assert.equal(exitableStart, '0')
       assert.equal(depositStart, '50')
       assert.equal(depositer, web3.eth.accounts.wallet[2].address)
@@ -280,7 +280,7 @@ describe('Plasma Smart Contract', () => {
       const plasmaBlock = '0'
       const exitStart = '0'
       const exitEnd = '10'
-      await plasma.methods.beginExit(plasmaBlock, exitStart, exitEnd).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
+      await plasma.methods.beginExit(0, plasmaBlock, exitStart, exitEnd).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
       const exitID = 0 // hardcode since this is all a deterministic test
       const exiter = await plasma.methods.exits__exiter(exitID).call()
       assert.equal(exiter, web3.eth.accounts.wallet[1].address)
@@ -293,25 +293,25 @@ describe('Plasma Smart Contract', () => {
 
       // now do the end: exiting 300, 550 -> exitID 1
       const plasmaBlock = '0'
-      await plasma.methods.beginExit(plasmaBlock, 300, 550).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
+      await plasma.methods.beginExit(0, plasmaBlock, 300, 550).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
       await setup.mineNBlocks(CHALLENGE_PERIOD)
       await plasma.methods.finalizeExit(1, 550).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
 
       // now do the middle: 100,200 -> exitID 2
-      await plasma.methods.beginExit(plasmaBlock, 100, 200).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
+      await plasma.methods.beginExit(0, plasmaBlock, 100, 200).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
       await setup.mineNBlocks(CHALLENGE_PERIOD)
       await plasma.methods.finalizeExit(2, 300).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
 
-      const firstExitableStart = await plasma.methods.exitable__start(100).call()
-      const secondExitableStart = await plasma.methods.exitable__start(300).call()
+      const firstExitableStart = await plasma.methods.exitable__start(0, 100).call()
+      const secondExitableStart = await plasma.methods.exitable__start(0, 300).call()
       assert.equal(firstExitableStart, '10')
       assert.equal(secondExitableStart, '200')
     })
     it('should properly process a new deposit after the rightmost coin was exited', async () => {
       const depositSize = 420
-      await plasma.methods.submitDeposit().send({ value: depositSize, from: web3.eth.accounts.wallet[2].address, gas: 4000000 })
+      await plasma.methods.depositETH().send({ value: depositSize, from: web3.eth.accounts.wallet[2].address, gas: 4000000 })
       const depositEnd = 970 // total deposits were now 50 + 500 + 420
-      const exitableStart = await plasma.methods.exitable__start(depositEnd).call()
+      const exitableStart = await plasma.methods.exitable__start(0, depositEnd).call()
       assert.equal(exitableStart, '550')
     })
   })
@@ -400,14 +400,14 @@ describe('Plasma Smart Contract', () => {
       await plasma.methods.submitBlock(dummyBlockHash).send({ value: 0, from: operator, gas: 4000000 }).catch((error) => { console.log('send callback failed: ', error) })
       await plasma.methods.submitBlock(dummyBlockHash).send({ value: 0, from: operator, gas: 4000000 }).catch((error) => { console.log('send callback failed: ', error) })
 
-      await plasma.methods.submitDeposit().send({ value: end, from: alice, gas: 4000000 })
+      await plasma.methods.depositETH().send({ value: end, from: alice, gas: 4000000 })
 
       await plasma.methods.submitBlock('0x' + blocks['A'].root().hash).send({ value: 0, from: operator, gas: 4000000 })
       await plasma.methods.submitBlock('0x' + blocks['B'].root().hash).send({ value: 0, from: operator, gas: 4000000 })
       await plasma.methods.submitBlock('0x' + blocks['C'].root().hash).send({ value: 0, from: operator, gas: 4000000 })
     })
     it('should allow inclusionChallenges and respondTransactionInclusion', async () => {
-      await plasma.methods.beginExit(5, start, end).send({ value: 0, from: dave, gas: 4000000 })
+      await plasma.methods.beginExit(0, 5, start, end).send({ value: 0, from: dave, gas: 4000000 })
       let exitID = exitNonce // this will be 0 since it's the first exit
       exitNonce++
 
@@ -434,7 +434,7 @@ describe('Plasma Smart Contract', () => {
       assert.equal(isOngoing, false)
     })
     it('should allow respondDepositInclusion s', async () => {
-      await plasma.methods.beginExit(2, start, end).send({ value: 0, from: alice, gas: 4000000 })
+      await plasma.methods.beginExit(0, 2, start, end).send({ value: 0, from: alice, gas: 4000000 })
       let exitID = exitNonce
       exitNonce++
 
@@ -458,7 +458,7 @@ describe('Plasma Smart Contract', () => {
     })
     it('should allow Spent Coin Challenges to cancel exits', async () => {
       // have Bob exit even though he sent to Carol
-      await plasma.methods.beginExit(3, start, end).send({ value: 0, from: carol, gas: 4000000 })
+      await plasma.methods.beginExit(0, 3, start, end).send({ value: 0, from: carol, gas: 4000000 })
       const exitID = exitNonce
       exitNonce++
 
@@ -480,7 +480,7 @@ describe('Plasma Smart Contract', () => {
       assert.equal(deletedExiter, expected)
     })
     it('should allow challengeBeforeDeposit s', async () => {
-      await plasma.methods.beginExit(0, start, end).send({ value: 0, from: alice, gas: 4000000 })
+      await plasma.methods.beginExit(0, 0, start, end).send({ value: 0, from: alice, gas: 4000000 })
       const exitID = exitNonce
       exitNonce++
 
@@ -497,7 +497,7 @@ describe('Plasma Smart Contract', () => {
       assert.equal(deletedExiter, expected)
     })
     it('should allow challengeInvalidHistoryWithTransaction s and respondInvalidHistoryTransaction s', async () => {
-      await plasma.methods.beginExit(4, start, end).send({ value: 0, from: dave, gas: 4000000 })
+      await plasma.methods.beginExit(0, 4, start, end).send({ value: 0, from: dave, gas: 4000000 })
       let exitID = exitNonce
       exitNonce++
 
@@ -533,10 +533,10 @@ describe('Plasma Smart Contract', () => {
     })
     it('should allow respondInvalidHistoryDeposit s', async () => {
       // create new deposit to respond with
-      await plasma.methods.submitDeposit().send({ value: 100, from: alice, gas: 4000000 })
+      await plasma.methods.depositETH().send({ value: 100, from: alice, gas: 4000000 })
 
       // from txB extension above
-      await plasma.methods.beginExit(5, end, end + 100).send({ value: 0, from: alice, gas: 4000000 })
+      await plasma.methods.beginExit(0, 5, end, end + 100).send({ value: 0, from: alice, gas: 4000000 })
       let exitID = exitNonce
       exitNonce++
 
@@ -569,7 +569,7 @@ describe('Plasma Smart Contract', () => {
       assert.equal(isOngoing, false)
     })
     it('should allow challengeInvalidHistoryWithDeposit s and responses', async () => {
-      await plasma.methods.beginExit(4, start, end).send({ value: 0, from: dave, gas: 4000000 })
+      await plasma.methods.beginExit(0, 4, start, end).send({ value: 0, from: dave, gas: 4000000 })
       let exitID = exitNonce
       exitNonce++
 
