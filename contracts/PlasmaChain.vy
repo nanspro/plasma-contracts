@@ -42,8 +42,8 @@ contract ERC20:
 ListingEvent: event({tokenType: uint256, tokenAddress: address})
 DepositEvent: event({depositer: indexed(address), tokenType: uint256, untypedStart: uint256, untypedEnd: uint256})
 SubmitBlockEvent: event({blockNumber: indexed(uint256), submittedHash: indexed(bytes32)})
-BeginExitEvent: event({start: indexed(uint256), end: indexed(uint256), exiter: address, exitID: uint256})
-FinalizeExitEvent: event({exitableEnd: uint256, exitID: uint256})
+BeginExitEvent: event({tokenType: indexed(uint256), untypedStart: indexed(uint256), untypedEnd: indexed(uint256), exiter: address, exitID: uint256})
+FinalizeExitEvent: event({tokenType: indexed(uint256), untypedStart: indexed(uint256), untypedEnd: indexed(uint256), exitID: uint256})
 ChallengeEvent: event({exitID: uint256, challengeID: indexed(uint256)})
 
 # operator related publics
@@ -579,7 +579,7 @@ def beginExit(tokenType: uint256, blockNumber: uint256, start: uint256, end: uin
     return exitID
 
     #log the event
-    log.BeginExitEvent(start, end, exiter, exitID)
+    log.BeginExitEvent(tokenType, start, end, exiter, exitID)
 
 
 @public
@@ -634,7 +634,7 @@ def finalizeExit(exitID: uint256, exitableEnd: uint256):
         assert passed
 
     # log the event    
-    log.FinalizeExitEvent(exitableEnd, exitID)
+    log.FinalizeExitEvent(tokenType, exitStart, exitEnd, exitID)
 
 @public
 def challengeBeforeDeposit(
