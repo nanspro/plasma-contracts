@@ -546,7 +546,7 @@ def depositETH():
     self.processDeposit(msg.sender, depositAmount, 0)
 
 @public
-def submitERC20Deposit(tokenAddress: address, depositSize: uint256):
+def depositERC20(tokenAddress: address, depositSize: uint256):
     depositer: address = msg.sender
 
     tokenType: uint256 = self.listed[tokenAddress]

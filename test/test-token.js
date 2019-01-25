@@ -69,7 +69,7 @@ describe('ERC20 Token Support', () => {
     it('should allow allice to approve and deposit', async () => {
       await token.methods.approve(plasma._address, aliceDepositSize).send({ from: alice })
 
-      await plasma.methods.submitERC20Deposit(token._address, aliceDepositSize).send({ from: alice })
+      await plasma.methods.depositERC20(token._address, aliceDepositSize).send({ from: alice })
 
       const newContractBalance = await token.methods.balanceOf(plasma._address).call()
       expect(newContractBalance).to.equal(aliceDepositSize)
