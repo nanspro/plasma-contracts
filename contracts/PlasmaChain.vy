@@ -57,7 +57,7 @@ listings: public(map(uint256, tokenListing))
 listingNonce: public(uint256)
 listed: public(map(address, uint256)) #which address is what token type
 
-weiPerCoin: public(uint256)
+weiDecimalOffset: public(uint256)
 
 # deposit and exit related publics
 exits: public(map(uint256, Exit))
@@ -471,7 +471,7 @@ def checkTransactionProofAndGetTransfer(
 ### BEGIN CONTRACT LOGIC ###
 
 @public
-def setup(_operator: address, ethDenomination: uint256, coinsPerToken: uint256): # last val should be properly hardcoded as a constant eventually
+def setup(_operator: address, ethDecimalOffset: uint256): # last val should be properly hardcoded as a constant eventually
     assert self.isSetup == False
     self.operator = _operator
     self.nextPlasmaBlockNumber = 1 # starts at 1 so deposits before the first block have a precedingPlasmaBlock of 0 since it can't be negative (it's a uint)
@@ -482,8 +482,8 @@ def setup(_operator: address, ethDenomination: uint256, coinsPerToken: uint256):
     self.exitable[0][0].isSet = True
     self.listingNonce = 1 # first list is ETH baby!!!
 
-    self.MAX_COINS_PER_TOKEN = coinsPerToken
-    self.weiPerCoin = ethDenomination
+    self.MAX_COINS_PER_TOKEN = 256**12
+    self.weiDecimalOffset = ethDecimalOffset
 
     self.isSetup = True
     
@@ -541,7 +541,8 @@ def processDeposit(depositer: address, depositAmount: uint256, tokenType: uint25
 @public
 @payable
 def depositETH():
-    depositAmount: uint256 = as_unitless_number(msg.value) / self.weiPerCoin
+    weiMuiltiplier: uint256 = 10**self.weiDecimalOffset
+    depositAmount: uint256 = as_unitless_number(msg.value) * weiMuiltiplier
     self.processDeposit(msg.sender, depositAmount, 0)
 
 @public
@@ -624,7 +625,8 @@ def finalizeExit(exitID: uint256, exitableEnd: uint256):
     self.removeFromExitable(tokenType, exitStart, exitEnd, exitableEnd)
 
     if tokenType == 0: # then we're exiting ETH
-        exitValue: uint256 = (exitEnd - exitStart) * self.weiPerCoin
+        weiMiltiplier: uint256 = 10**self.weiDecimalOffset
+        exitValue: uint256 = (exitEnd - exitStart) / weiMiltiplier
         send(exiter, as_wei_value(exitValue, "wei"))
     else: #then we're exiting ERC
         tokenMultiplier: uint256 = 10**self.listings[tokenType].decimalOffset
