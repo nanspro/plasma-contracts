@@ -39,8 +39,8 @@ contract ERC20:
 
 
 # Events to log in web3
-ListingEvent: event({tokenAddress: address})
-DepositEvent: event({depositer: indexed(address), depositAmount: uint256, tokenType: uint256})
+ListingEvent: event({tokenType: uint256, tokenAddress: address})
+DepositEvent: event({depositer: indexed(address), tokenType: uint256, depositUntypedStart: uint256, depositUntypedEnd: uint256})
 SubmitBlockEvent: event({blockNumber: indexed(uint256), submittedHash: indexed(bytes32)})
 BeginExitEvent: event({start: indexed(uint256), end: indexed(uint256), exiter: address, exitID: uint256})
 FinalizeExitEvent: event({exitableEnd: uint256, exitID: uint256})
@@ -513,7 +513,7 @@ def listToken(tokenAddress: address, denomination: uint256):
     self.listings[tokenType].contractAddress = tokenAddress
 
     self.exitable[tokenType][0].isSet = True # init the new token exitable ranges
-    log.ListingEvent(tokenAddress)
+    log.ListingEvent(tokenType, tokenAddress)
 
 ### BEGIN DEPOSITS AND EXITS SECTION ###
 
@@ -525,16 +525,18 @@ def processDeposit(depositer: address, depositAmount: uint256, tokenType: uint25
     oldRange: exitableRange = self.exitable[tokenType][oldEnd] # remember, map is end -> start!
 
     self.totalDeposited += depositAmount # add deposit
+    newEnd: uint256 = self.totalDeposited # this is how much there is now, so the end of this deposit.
     # removed, replace with per ERC -->    assert self.totalDeposited < MAX_END # make sure we're not at capacity
     clear(self.exitable[tokenType][oldEnd]) # delete old exitable range
-    self.exitable[tokenType][self.totalDeposited] = oldRange #make exitable
+    self.exitable[tokenType][newEnd] = oldRange #make exitable
 
-    self.deposits[tokenType][self.totalDeposited].start = oldEnd # the range (oldEnd, newTotalDeposited) was deposited by the depositer
-    self.deposits[tokenType][self.totalDeposited].depositer = depositer
-    self.deposits[tokenType][self.totalDeposited].precedingPlasmaBlockNumber = self.nextPlasmaBlockNumber - 1
+    self.deposits[tokenType][newEnd].start = oldEnd # the range (oldEnd, newTotalDeposited) was deposited by the depositer
+    self.deposits[tokenType][newEnd].depositer = depositer
+    self.deposits[tokenType][newEnd].precedingPlasmaBlockNumber = self.nextPlasmaBlockNumber - 1
 
-    # log the deposit so operator can take note
-    log.DepositEvent(depositer, depositAmount, tokenType)
+    # log the deposit so participants can take note
+    log.DepositEvent(depositer, tokenType, oldEnd, newEnd)
+
 
 @public
 @payable
