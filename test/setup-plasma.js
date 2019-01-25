@@ -114,7 +114,7 @@ async function setupPlasma () {
 
   const addr = web3.eth.accounts.wallet[0].address
 
-  const plasmaCt = new web3.eth.Contract(abi, addr, { from: addr, gas: 6000000, gasPrice: '300000' })
+  const plasmaCt = new web3.eth.Contract(abi, addr, { from: addr, gas: 6500000, gasPrice: '300000' })
 
   await mineBlock()
   // Now try to deploy
@@ -141,7 +141,7 @@ async function setupToken () {
 
   const addr = web3.eth.accounts.wallet[1].address
 
-  const tokenCt = new web3.eth.Contract(tokenAbi, addr, { from: addr, gas: 5500000, gasPrice: '300000' })
+  const tokenCt = new web3.eth.Contract(tokenAbi, addr, { from: addr, gas: 6500000, gasPrice: '300000' })
 
   await mineBlock()
   const name = asBytes32('BenCoin')

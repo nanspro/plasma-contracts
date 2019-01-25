@@ -74,7 +74,7 @@ describe('ERC20 Token Support', () => {
       const newContractBalance = await token.methods.balanceOf(plasma._address).call()
       expect(newContractBalance).to.equal(aliceDepositSize)
 
-      const newDepositStart = await plasma.methods.deposits__start(1, aliceNumPlasmaCoins).call()
+      const newDepositStart = await plasma.methods.deposits__untypedStart(1, aliceNumPlasmaCoins).call()
       expect(newDepositStart).to.equal('0') // first deposit tokentype 1 ^ should equal 0 since it was the first
 
       const newDepositer = await plasma.methods.deposits__depositer(1, aliceNumPlasmaCoins).call()

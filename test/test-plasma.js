@@ -113,8 +113,16 @@ describe('Plasma Smart Contract', () => {
         const expected = randomTX.transfers[randomTransferIndex].token.toString()
         assert.equal(decoded, expected)
       })
+      it('should convert an untyped coinID to typed given the tokenType', async () => {
+        const untyped = 5
+        const type = 2
+        const typed = await plasma.methods.getTypedFromTokenAndUntyped(type, untyped).call()
+        
+        const expected = '158456325028528675187087900677'
+        assert.equal(typed, expected)
+      })
       it('should decode a transfer range', async () => {
-        const decoded = await plasma.methods.decodeTransferRange(randomTransferEncoding).call()
+        const decoded = await plasma.methods.decodeTypedTransferRange(randomTransferEncoding).call()
         const expectedType = randomTX.transfers[randomTransferIndex].token.toString(16, 8)
         const expectedStart = randomTX.transfers[randomTransferIndex].start.toString(16, 12)
         const expectedEnd = randomTX.transfers[randomTransferIndex].end.toString(16, 12)
@@ -217,14 +225,14 @@ describe('Plasma Smart Contract', () => {
       tx = txs[TXIndex]
       tree = new PlasmaMerkleSumTree(txs)
     })
-    it('should checkTransferProofAndGetBounds', async () => {
+    it('should checkTransferProofAndGetTypedBounds', async () => {
       await setup.revertToChainSnapshot(freshContractSnapshot)
       freshContractSnapshot = await getCurrentChainSnapshot() // weird bug where ganache crashes if you load the same snapshot twice, so gotta "reset" it every time it's used.
       await plasma.methods.submitBlock('0x' + tree.root().hash).send({ value: 0, from: web3.eth.accounts.wallet[0].address, gas: 4000000 })
 
       const TRIndex = 0
       const unsigned = new UnsignedTransaction(tx)
-      const possibleImplicitBounds = await plasma.methods.checkTransferProofAndGetBounds(
+      const possibleImplicitBounds = await plasma.methods.checkTransferProofAndGetTypedBounds(
         web3.utils.soliditySha3('0x' + unsigned.encoded),
         tx.block.toString(),
         '0x' + tree.getTransferProof(TXIndex, TRIndex).encoded // txindex only works here if all single-sends
@@ -232,9 +240,9 @@ describe('Plasma Smart Contract', () => {
       assert.equal(possibleImplicitBounds[0], new BN(0))
       assert(new BN(possibleImplicitBounds[1]).gte(new BN(txs[0].transfers[0].end)))
     })
-    it('should checkTransactionProofAndGetTransfer', async () => {
+    it('should checkTransactionProofAndGetTypedTransfer', async () => {
       const unsigned = new UnsignedTransaction(tx)
-      const requestedTransfer = await plasma.methods.checkTransactionProofAndGetTransfer(
+      const requestedTransfer = await plasma.methods.checkTransactionProofAndGetTypedTransfer(
         '0x' + unsigned.encoded,
         '0x' + tree.getTransactionProof(tx).encoded,
         0
@@ -258,8 +266,8 @@ describe('Plasma Smart Contract', () => {
     it('should allow a first deposit and add it to the deposits correctly', async () => {
       const depositSize = 50
       await plasma.methods.depositETH().send({ value: depositSize, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
-      const exitableStart = await plasma.methods.exitable__start(0, depositSize).call()
-      const depositStart = await plasma.methods.deposits__start(0, depositSize).call()
+      const exitableStart = await plasma.methods.exitable__untypedStart(0, depositSize).call()
+      const depositStart = await plasma.methods.deposits__untypedStart(0, depositSize).call()
       const depositer = await plasma.methods.deposits__depositer(0, depositSize).call()
       assert.equal(exitableStart, '0')
       assert.equal(depositStart, '0')
@@ -269,8 +277,8 @@ describe('Plasma Smart Contract', () => {
       const depositSize = 500
       await plasma.methods.depositETH().send({ value: depositSize, from: web3.eth.accounts.wallet[2].address, gas: 4000000 })
       const depositEnd = 550 // 550 hardcoded from above deposit of 50
-      const exitableStart = await plasma.methods.exitable__start(0, depositEnd).call()
-      const depositStart = await plasma.methods.deposits__start(0, depositEnd).call()
+      const exitableStart = await plasma.methods.exitable__untypedStart(0, depositEnd).call()
+      const depositStart = await plasma.methods.deposits__untypedStart(0, depositEnd).call()
       const depositer = await plasma.methods.deposits__depositer(0, depositEnd).call()
       assert.equal(exitableStart, '0')
       assert.equal(depositStart, '50')
@@ -302,8 +310,8 @@ describe('Plasma Smart Contract', () => {
       await setup.mineNBlocks(CHALLENGE_PERIOD)
       await plasma.methods.finalizeExit(2, 300).send({ value: 0, from: web3.eth.accounts.wallet[1].address, gas: 4000000 })
 
-      const firstExitableStart = await plasma.methods.exitable__start(0, 100).call()
-      const secondExitableStart = await plasma.methods.exitable__start(0, 300).call()
+      const firstExitableStart = await plasma.methods.exitable__untypedStart(0, 100).call()
+      const secondExitableStart = await plasma.methods.exitable__untypedStart(0, 300).call()
       assert.equal(firstExitableStart, '10')
       assert.equal(secondExitableStart, '200')
     })
@@ -311,7 +319,7 @@ describe('Plasma Smart Contract', () => {
       const depositSize = 420
       await plasma.methods.depositETH().send({ value: depositSize, from: web3.eth.accounts.wallet[2].address, gas: 4000000 })
       const depositEnd = 970 // total deposits were now 50 + 500 + 420
-      const exitableStart = await plasma.methods.exitable__start(0, depositEnd).call()
+      const exitableStart = await plasma.methods.exitable__untypedStart(0, depositEnd).call()
       assert.equal(exitableStart, '550')
     })
   })
