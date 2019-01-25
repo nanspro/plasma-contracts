@@ -40,7 +40,7 @@ contract ERC20:
 
 # Events to log in web3
 ListingEvent: event({tokenType: uint256, tokenAddress: address})
-DepositEvent: event({depositer: indexed(address), tokenType: uint256, depositUntypedStart: uint256, depositUntypedEnd: uint256})
+DepositEvent: event({depositer: indexed(address), tokenType: uint256, untypedStart: uint256, untypedEnd: uint256})
 SubmitBlockEvent: event({blockNumber: indexed(uint256), submittedHash: indexed(bytes32)})
 BeginExitEvent: event({start: indexed(uint256), end: indexed(uint256), exiter: address, exitID: uint256})
 FinalizeExitEvent: event({exitableEnd: uint256, exitID: uint256})
