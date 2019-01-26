@@ -591,13 +591,13 @@ def beginExit(tokenType: uint256, blockNumber: uint256, untypedStart: uint256, u
 def checkRangeExitable(tokenType: uint256, untypedStart: uint256, untypedEnd: uint256, claimedExitableEnd: uint256):
     assert untypedEnd <= self.MAX_COINS_PER_TOKEN
     assert untypedEnd <= claimedExitableEnd
-    assert untypedStart >= self.exitable[0][claimedExitableEnd].untypedStart
+    assert untypedStart >= self.exitable[tokenType][claimedExitableEnd].untypedStart
     assert self.exitable[tokenType][claimedExitableEnd].isSet
 
 # this function updates the exitable ranges to reflect a newly finalized exit.
-@public # make private once tested!!!!
+@private
 def removeFromExitable(tokenType: uint256, untypedStart: uint256, untypedEnd: uint256, exitableEnd: uint256):
-    oldUntypedStart: uint256 = self.exitable[0][exitableEnd].untypedStart
+    oldUntypedStart: uint256 = self.exitable[tokenType][exitableEnd].untypedStart
     #todo fix/check  the case with totally filled exit finalization
     if untypedStart != oldUntypedStart: # then we have a new exitable region to the left
         self.exitable[tokenType][untypedStart].untypedStart = oldUntypedStart # new exitable range from oldstart to the start of the exit (which has just become the end of the new exitable range)
@@ -648,11 +648,13 @@ def challengeBeforeDeposit(
     coinID: uint256,
     depositUntypedEnd: uint256
 ):
+    exitTokenType: uint256 = self.exits[exitID].tokenType
+
     # note: this can always be challenged because no response and all info on-chain, no invalidity period needed
-    depositPrecedingPlasmaBlock: uint256 = self.deposits[0][depositUntypedEnd].precedingPlasmaBlockNumber
-    assert self.deposits[0][depositUntypedEnd].depositer != ZERO_ADDRESS # requires the deposit to be a valid deposit and not something unset
+    depositPrecedingPlasmaBlock: uint256 = self.deposits[exitTokenType][depositUntypedEnd].precedingPlasmaBlockNumber
+    assert self.deposits[exitTokenType][depositUntypedEnd].depositer != ZERO_ADDRESS # requires the deposit to be a valid deposit and not something unset
     
-    depositUntypedStart: uint256 = self.deposits[0][depositUntypedEnd].untypedStart
+    depositUntypedStart: uint256 = self.deposits[exitTokenType][depositUntypedEnd].untypedStart
 
     tokenType: uint256 = self.exits[exitID].tokenType
     depositTypedStart: uint256 = self.getTypedFromTokenAndUntyped(tokenType, depositUntypedStart)
@@ -737,13 +739,14 @@ def respondDepositInclusion(
     exitID: uint256 = self.inclusionChallenges[challengeID].exitID
     exiter: address = self.exits[exitID].exiter
     exitPlasmaBlockNumber: uint256 = self.exits[exitID].plasmaBlockNumber
+    exitTokenType: uint256 = self.exits[exitID].tokenType
 
     # check exit exiter is indeed recipient
-    depositer: address = self.deposits[0][depositEnd].depositer
+    depositer: address = self.deposits[exitTokenType][depositEnd].depositer
     assert depositer == exiter
 
     #check the inclusion was indeed at this block
-    depositBlockNumber: uint256 = self.deposits[0][depositEnd].precedingPlasmaBlockNumber
+    depositBlockNumber: uint256 = self.deposits[exitTokenType][depositEnd].precedingPlasmaBlockNumber
     assert exitPlasmaBlockNumber == depositBlockNumber
 
     # response was successful
@@ -760,7 +763,7 @@ def challengeSpentCoin(
 ):
     # check we can still challenge
     exitethBlockNumberNumber: uint256 = self.exits[exitID].ethBlockNumber
-    assert block.number < exitethBlockNumberNumber + SPENTCOIN_CHALLENGE_PERIOD
+    # assert block.number < exitethBlockNumberNumber + SPENTCOIN_CHALLENGE_PERIOD
 
     transferTypedStart: uint256 # these will be the ones at the trIndex we are being asked about by the exit game
     transferTypedEnd: uint256
@@ -782,20 +785,21 @@ def challengeSpentCoin(
 
     exiter: address = self.exits[exitID].exiter
     exitPlasmaBlockNumber: uint256 = self.exits[exitID].plasmaBlockNumber
-    exitTypedStart: uint256 = self.exits[exitID].untypedStart
-    exitTypedEnd: uint256 = self.exits[exitID].untypedEnd
+    exitTokenType: uint256 = self.exits[exitID].tokenType
+    exitTypedStart: uint256 = self.getTypedFromTokenAndUntyped(exitTokenType, self.exits[exitID].untypedStart)
+    exitTypedEnd: uint256 = self.getTypedFromTokenAndUntyped(exitTokenType, self.exits[exitID].untypedEnd)
 
     # check the coinspend came after the exit block
     assert bn > exitPlasmaBlockNumber
 
     # check the coinspend intersects both the exit and proven transfer
-    assert coinID >= exitTypedStart
+    assert coinID >=  exitTypedStart
     assert coinID < exitTypedEnd
     assert coinID >= transferTypedStart
     assert coinID < transferTypedEnd
 
     # check the sender was the exiter
-    #assert transferSender == exiter
+    assert transferSender == exiter
 
     # if all these passed, the coin was indeed spent.  CANCEL!
     clear(self.exits[exitID])
@@ -823,7 +827,7 @@ def challengeInvalidHistory(
 
     assert coinID >= exitTypedStart
     assert coinID < exitTypedEnd
-    
+
     # check the coinspend intersects the proven transfer
     assert coinID >= typedStart
     assert coinID < typedEnd
@@ -860,7 +864,6 @@ def challengeInvalidHistoryWithTransaction(
     transferRecipient: address
     transferSender: address
     bn: uint256
-
     (
         transferRecipient,
         transferSender,

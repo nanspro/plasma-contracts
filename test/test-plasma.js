@@ -9,8 +9,7 @@ const chai = require('chai')
 const expect = chai.expect
 const assert = chai.assert
 
-const Web3 = require('web3')
-const BN = Web3.utils.BN
+const BigNum = require('bn.js')
 
 const plasmaUtils = require('plasma-utils')
 const PlasmaMerkleSumTree = plasmaUtils.PlasmaMerkleSumTree
@@ -29,7 +28,7 @@ const CHALLENGE_PERIOD = 20
 
 describe('Plasma Smart Contract', () => {
   let bytecode, abi, plasma, operatorSetup, freshContractSnapshot
-  const dummyBlockHash = '0x000000000000000000000000000000000000000000000000000000000000000'
+  const dummyBlockHash = '0x0000000000000000000000000000000000000000000000000000000000000000'
   // BEGIN SETUP
   before(async () => {
     // setup ganache, deploy, etc.
@@ -76,8 +75,8 @@ describe('Plasma Smart Contract', () => {
       }
       encodedTransferProof = '00000000000000000000000000000003' + '00000000000000000000000000000004' + encodedSignature + '01' + '563f225cdc192264a90e7e4b402815479c71a16f1593afa4fc6323e18583472affffffffffffffffffffffffffffffff'
       decodedTransferProof = {
-        parsedSum: new BN('3', 'hex'),
-        leafIndex: new BN('4', 'hex'),
+        parsedSum: new BigNum('3', 'hex'),
+        leafIndex: new BigNum('4', 'hex'),
         inclusionProof: [
           '563f225cdc192264a90e7e4b402815479c71a16f1593afa4fc6323e18583472affffffffffffffffffffffffffffffff'
         ],
@@ -127,8 +126,8 @@ describe('Plasma Smart Contract', () => {
         const expectedStart = randomTX.transfers[randomTransferIndex].start.toString(16, 12)
         const expectedEnd = randomTX.transfers[randomTransferIndex].end.toString(16, 12)
         const expected = [
-          new BN(expectedType + expectedStart, 16).toString(),
-          new BN(expectedType + expectedEnd, 16).toString()
+          new BigNum(expectedType + expectedStart, 16).toString(),
+          new BigNum(expectedType + expectedEnd, 16).toString()
         ]
         assert.equal(decoded[0], expected[0])
         assert.equal(decoded[1], expected[1])
@@ -141,12 +140,12 @@ describe('Plasma Smart Contract', () => {
       })
       it('should decodeBlockNumber from a tx', async () => {
         const decoded = await plasma.methods.decodeBlockNumber(randomTXEncoding).call()
-        const expected = new BN(randomTX.block).toString()
+        const expected = new BigNum(randomTX.block).toString()
         assert.equal(decoded, expected)
       })
       it('should decodeNumTransfers from a tx', async () => {
         const decoded = await plasma.methods.decodeNumTransfers(randomTXEncoding).call()
-        const expected = new BN(randomTX.transfers.length).toString()
+        const expected = new BigNum(randomTX.transfers.length).toString()
         assert.equal(decoded, expected)
       })
       it('should decode the ith transfer', async () => {
@@ -172,9 +171,9 @@ describe('Plasma Smart Contract', () => {
       it('should decodeSignature', async () => {
         const decoded = await plasma.methods.decodeSignature('0x' + encodedTransferProof).call()
         const expected = [
-          '0x' + new BN(testTransferProof.signature.v).toString(16, 2),
-          '0x' + new BN(testTransferProof.signature.r).toString(16, 64),
-          '0x' + new BN(testTransferProof.signature.s).toString(16, 64)
+          '0x' + new BigNum(testTransferProof.signature.v).toString(16, 2),
+          '0x' + new BigNum(testTransferProof.signature.r).toString(16, 64),
+          '0x' + new BigNum(testTransferProof.signature.s).toString(16, 64)
         ]
         assert.equal(decoded[0], expected[0])
         assert.equal(decoded[1], expected[1])
@@ -187,14 +186,14 @@ describe('Plasma Smart Contract', () => {
       })
       it('should decodeIthInclusionProofNode', async () => {
         const decoded = await plasma.methods.decodeIthInclusionProofNode(0, '0x' + encodedTransferProof).call()
-        const expected = '0x' + new BN(testTransferProof.inclusionProof[0]).toString(16)
+        const expected = '0x' + new BigNum(testTransferProof.inclusionProof[0]).toString(16)
         assert.equal(decoded, expected)
       })
     })
     describe('Transaction Proof Decoding', () => {
       it('should decodeNumTransactionProofs', async () => {
         const decoded = await plasma.methods.decodeNumTransactionProofs('0x' + encodedTransactionProof).call()
-        const expected = new BN(transactionProof.transferProofs.length).toString()
+        const expected = new BigNum(transactionProof.transferProofs.length).toString()
         assert.equal(decoded, expected)
       })
 
@@ -219,7 +218,7 @@ describe('Plasma Smart Contract', () => {
       TXIndex = 0
       txs = genSequentialTXs(2)
       txs = txs.map((tx) => {
-        tx.block = new BN(1)
+        tx.block = new BigNum(1)
         return tx
       })
       tx = txs[TXIndex]
@@ -237,8 +236,8 @@ describe('Plasma Smart Contract', () => {
         tx.block.toString(),
         '0x' + tree.getTransferProof(TXIndex, TRIndex).encoded // txindex only works here if all single-sends
       ).call()
-      assert.equal(possibleImplicitBounds[0], new BN(0))
-      assert(new BN(possibleImplicitBounds[1]).gte(new BN(txs[0].transfers[0].end)))
+      assert.equal(possibleImplicitBounds[0], new BigNum(0))
+      assert(new BigNum(possibleImplicitBounds[1]).gte(new BigNum(txs[0].transfers[0].end)))
     })
     it('should checkTransactionProofAndGetTypedTransfer', async () => {
       const unsigned = new UnsignedTransaction(tx)

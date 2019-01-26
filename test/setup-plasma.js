@@ -1,11 +1,11 @@
 const ganache = require('ganache-cli')
 const Web3 = require('web3')
-const BN = Web3.utils.BN
+const BigNum = require('bn.js')
 
 const Transaction = require('plasma-utils').serialization.models.Transaction
 
-const MAX_END = new BN('170141183460469231731687303715884105727', 10) // this is not the right max end for 16 bytes, but we're gonna leave it for now as vyper has a weird bug only supporting uint128 vals
-const IMAGINARY_PRECEDING = MAX_END.add(new BN(1))
+const MAX_END = new BigNum('170141183460469231731687303715884105727', 10) // this is not the right max end for 16 bytes, but we're gonna leave it for now as vyper has a weird bug only supporting uint128 vals
+const IMAGINARY_PRECEDING = MAX_END.add(new BigNum(1))
 
 // const encoder = require('plasma-utils').encoder
 
@@ -21,7 +21,7 @@ for (let i = 0; i < 5; i++) {
   web3.eth.accounts.wallet.add(privateKey)
 }
 // For all provider options, see: https://github.com/trufflesuite/ganache-cli#library
-const providerOptions = { 'accounts': ganacheAccounts, 'locked': false } // , 'logger': console }
+const providerOptions = { 'accounts': ganacheAccounts, 'locked': false }//, 'logger': console, 'debug': true }
 web3.setProvider(ganache.provider(providerOptions))
 
 async function mineBlock () {
@@ -147,7 +147,7 @@ async function setupToken () {
   const name = asBytes32('BenCoin')
   const ticker = asBytes32('BEN')
   const decimals = 5
-  const totSupply = 100
+  const totSupply = 1000
   // Now try to deploy
   token = await tokenCt.deploy(
     {
@@ -160,7 +160,8 @@ async function setupToken () {
       data: tokenBytecode
     }
   ).send({ from: web3.eth.accounts.wallet[1].address }) // give all initial balance to alice
-  return [tokenBytecode, tokenAbi, token]
+  freshTokenSnapshot = await getCurrentChainSnapshot()
+  return [tokenBytecode, tokenAbi, token, freshTokenSnapshot]
 }
 
 // pads a string's utf8 byte representation to 32 bytes, as string '0x' + ...
@@ -169,7 +170,7 @@ function asBytes32 (string) {
   const remainingNumBytes = 32 - utf8.length
   let pad = []
   for (let i = 0; i < remainingNumBytes; i++) { pad.push(0) }
-  return '0x' + new BN(utf8.concat(pad)).toString('hex', 64)
+  return '0x' + new BigNum(utf8.concat(pad)).toString('hex', 64)
 }
 
 // modified from https://github.com/google/closure-library/blob/e877b1eac410c0d842bcda118689759512e0e26f/closure/goog/crypt/crypt.js
