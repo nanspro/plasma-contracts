@@ -261,9 +261,9 @@ SIGS_LEN: constant(int128) = 32
 def decodeSignature(
     transferProofEncoding: bytes[1749]
 ) -> (
-    bytes[1], # v
-    bytes32, # r
-    bytes32 # s
+    uint256, # v
+    uint256, # r
+    uint256 # s
 ):
     sig: bytes[65] = slice(transferProofEncoding,
         start = SIG_START,
@@ -279,9 +279,9 @@ def decodeSignature(
         start = SIGS_OFFSET,
         len = SIGS_LEN)
     return (
-        sigV,
-        convert(sigR, bytes32),
-        convert(sigS, bytes32)
+        convert(sigV, uint256),
+        convert(sigR, uint256),
+        convert(sigS, uint256)
     )
 
 NUMPROOFNODES_START: constant(int128) = 97
@@ -450,9 +450,9 @@ def checkTransactionProofAndGetTypedTransfer(
         assert transferTypedStart < transferTypedEnd
         assert transferTypedEnd <= implicitTypedEnd
 
-        v: bytes[1] # v
-        r: bytes32 # r
-        s: bytes32 # s
+        v: uint256 # v
+        r: uint256 # r
+        s: uint256 # s
         (v, r, s) = self.decodeSignature(transferProof)
         sender: address = self.decodeSender(transferEncoding)
         # TODO: add signature check here!

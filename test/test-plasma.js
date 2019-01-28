@@ -171,9 +171,9 @@ describe('Plasma Smart Contract', () => {
       it('should decodeSignature', async () => {
         const decoded = await plasma.methods.decodeSignature('0x' + encodedTransferProof).call()
         const expected = [
-          '0x' + new BigNum(testTransferProof.signature.v).toString(16, 2),
-          '0x' + new BigNum(testTransferProof.signature.r).toString(16, 64),
-          '0x' + new BigNum(testTransferProof.signature.s).toString(16, 64)
+          new BigNum(testTransferProof.signature.v).toString(),
+          new BigNum(testTransferProof.signature.r).toString(),
+          new BigNum(testTransferProof.signature.s).toString()
         ]
         assert.equal(decoded[0], expected[0])
         assert.equal(decoded[1], expected[1])
@@ -332,7 +332,7 @@ describe('Plasma Smart Contract', () => {
       web3.eth.accounts.wallet[4].address
     ]
     const [blockNumA, blockNumB, blockNumC] = [3, 4, 5] // publishing 2 empty blocks first and index starts at 1 currently
-    const txA = new SignedTransaction({
+    const txAUnsigned = new UnsignedTransaction({
       block: blockNumA,
       transfers: [
         {
@@ -342,16 +342,13 @@ describe('Plasma Smart Contract', () => {
           start: start,
           end: end
         }
-      ],
-      signatures: [
-        {
-          v: '1b',
-          r: 'd693b532a80fed6392b428604171fb32fdbf953728a3a7ecc7d4062b1652c042',
-          s: '24e9c602ac800b983b035700a14b23f78a253ab762deab5dc27e3555a750b354'
-        }
       ]
     })
-    const txB = new SignedTransaction({
+    const txA = new SignedTransaction({
+      ...txAUnsigned,
+      ...{ signatures: [plasmaUtils.utils.sign(txAUnsigned.hash, web3.eth.accounts.wallet[1].privateKey)] }
+    })
+    const txBUnsigned= new UnsignedTransaction({
       block: blockNumB,
       transfers: [
         {
@@ -361,16 +358,13 @@ describe('Plasma Smart Contract', () => {
           start: start,
           end: end + 100 // used for invalidHistoryDepositResponse below
         }
-      ],
-      signatures: [
-        {
-          v: '1b',
-          r: 'd693b532a80fed6392b428604171fb32fdbf953728a3a7ecc7d4062b1652c042',
-          s: '24e9c602ac800b983b035700a14b23f78a253ab762deab5dc27e3555a750b354'
-        }
       ]
     })
-    const txC = new SignedTransaction({
+    const txB = new SignedTransaction({
+      ...txBUnsigned,
+      ...{ signatures: [plasmaUtils.utils.sign(txBUnsigned.hash, web3.eth.accounts.wallet[2].privateKey)] }
+    })
+    const txCUnsigned = new UnsignedTransaction({
       block: blockNumC,
       transfers: [
         {
@@ -380,14 +374,11 @@ describe('Plasma Smart Contract', () => {
           start: start,
           end: end
         }
-      ],
-      signatures: [
-        {
-          v: '1b',
-          r: 'd693b532a80fed6392b428604171fb32fdbf953728a3a7ecc7d4062b1652c042',
-          s: '24e9c602ac800b983b035700a14b23f78a253ab762deab5dc27e3555a750b354'
-        }
       ]
+    })
+    const txC = new SignedTransaction({
+      ...txCUnsigned,
+      ...{ signatures: [plasmaUtils.utils.sign(txCUnsigned.hash, web3.eth.accounts.wallet[2].privateKey)] }
     })
 
     // Get some random transactions so make a tree with.  Note that they will be invalid--but we're not checking them so who cares! :P
