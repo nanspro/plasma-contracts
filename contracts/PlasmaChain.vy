@@ -238,7 +238,7 @@ def checkTransactionProofAndGetTypedTransfer(
 ### BEGIN CONTRACT LOGIC ###
 
 @public
-def setup(_operator: address, ethDecimalOffset: uint256, serializerAddr: address, paddedMessagePrefix: bytes32): # last val should be properly hardcoded as a constant eventually
+def setup(_operator: address, ethDecimalOffset: uint256, serializerAddr: address): # last val should be properly hardcoded as a constant eventually
     assert self.isSetup == False
     self.operator = _operator
     self.nextPlasmaBlockNumber = 1 # starts at 1 so deposits before the first block have a precedingPlasmaBlock of 0 since it can't be negative (it's a uint)
@@ -250,7 +250,7 @@ def setup(_operator: address, ethDecimalOffset: uint256, serializerAddr: address
 
     self.MAX_COINS_PER_TOKEN = 256**12
     self.weiDecimalOffset = 0 # ethDecimalOffset setting to 0 for now until enabled in core
-
+    paddedMessagePrefix: bytes32 = 0x0000000019457468657265756d205369676e6564204d6573736167653a0a3332
     #do the thing to get a bytes[28] prefix for message hash gen
     self.MESSAGE_PREFIX = slice(concat(paddedMessagePrefix, paddedMessagePrefix), start = 4, len = 28)
 
