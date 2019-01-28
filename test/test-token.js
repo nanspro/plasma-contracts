@@ -36,13 +36,13 @@ describe('ERC20 Token Support', () => {
   let listingNonce = 1
   let exitNonce = 0
 
-  let bytecode, abi, plasma, operatorSetup, freshContractSnapshot, freshTokenSnapshot // eslint-disable-line no-unused-vars
+  let bytecode, abi, plasma, operatorSetup, freshContractSnapshot, freshTokenSnapshot, serializer // eslint-disable-line no-unused-vars
   let tokenBytecode, tokenAbi, token
   // BEGIN SETUP
   before(async () => {
     // setup ganache, deploy, etc.
     [
-      bytecode, abi, plasma, operatorSetup, freshContractSnapshot
+      bytecode, abi, plasma, operatorSetup, freshContractSnapshot, serializer
     ] = await setup.setupPlasma()
     ;
     [

@@ -37,6 +37,27 @@ contract ERC20:
     def transferFrom(_from: address, _to: address, _value: uint256) -> bool: modifying
     def transfer(_to: address, _value: uint256) -> bool: modifying
 
+contract Serializer:
+    def getLeafHash(transactionEncoding: bytes[277]) -> bytes32: constant
+    def decodeBlockNumber(transactionEncoding: bytes[277]) -> uint256: constant
+    def decodeNumTransfers(transactionEncoding: bytes[277]) -> uint256: constant
+    def decodeIthTransfer( index: int128, ransactionEncoding: bytes[277] ) -> bytes[68]: constant
+    def bytes20ToAddress(addr: bytes[20]) -> address: constant
+    def decodeSender( transferEncoding: bytes[68] ) -> address: constant
+    def decodeRecipient( transferEncoding: bytes[68] ) -> address: constant
+    def decodeTokenTypeBytes( transferEncoding: bytes[68] ) -> bytes[4]: constant
+    def decodeTokenType( transferEncoding: bytes[68] ) -> uint256: constant
+    def getTypedFromTokenAndUntyped(tokenType: uint256, coinID: uint256) -> uint256: constant
+    def decodeTypedTransferRange(transferEncoding: bytes[68] ) -> (uint256, uint256): constant
+    def decodeParsedSumBytes( transferProofEncoding: bytes[1749]  ) -> bytes[16]: constant
+    def decodeLeafIndex( transferProofEncoding: bytes[1749] ) -> int128: constant
+    def decodeSignature(transferProofEncoding: bytes[1749]) -> (uint256,  uint256, uint256): constant
+    def decodeNumInclusionProofNodesFromTRProof(transferProof: bytes[1749]) -> int128: constant
+    def decodeIthInclusionProofNode(index: int128, transferProofEncoding: bytes[1749]) -> bytes[48]: constant
+    def decodeNumInclusionProofNodesFromTXProof(transactionProof: bytes[1749]) -> int128: constant
+    def decodeNumTransactionProofs(transactionProofEncoding: bytes[1749]) -> int128: constant
+    def decodeIthTransferProofWithNumNodes(index: int128, numInclusionProofNodes: int128, transactionProofEncoding: bytes[1749]) -> bytes[1749]: constant
+
 # Events to log in web3
 ListingEvent: event({tokenType: uint256, tokenAddress: address})
 DepositEvent: event({plasmaBlockNumber: indexed(uint256), depositer: indexed(address), tokenType: uint256, untypedStart: uint256, untypedEnd: uint256})
@@ -63,7 +84,7 @@ exits: public(map(uint256, Exit))
 exitNonce: public(uint256)
 exitable: public(map(uint256, map(uint256, exitableRange))) # tokentype -> ( end -> start because it makes for cleaner code
 deposits: public(map(uint256, map(uint256, deposit))) # first val is tokentype. also has end -> start for consistency
-totalDeposited: public(uint256)
+totalDeposited: public(map(uint256, uint256))
 
 # challenge-related publics
 inclusionChallenges: public(map(uint256, inclusionChallenge))
@@ -71,6 +92,8 @@ invalidHistoryChallenges: public(map(uint256, invalidHistoryChallenge))
 challengeNonce: public(uint256)
 
 isSetup: public(bool)
+
+serializer: public(address)
 
 # publics for ethereum message hash gen
 # this is "\x19Ethereum Signed Message:\n32"
@@ -91,273 +114,15 @@ MAX_COINS_PER_TOKEN: public(uint256)
 MAX_TREE_DEPTH: constant(int128) = 8
 MAX_TRANSFERS: constant(uint256) = 4
 
-### BEGIN TRANSACTION DECODING SECION ###
-
-# Note: TX Encoding Lengths
-#
-# The MAX_TRANSFERS should be a tunable constant, but vyper doesn't 
-# support 'bytes[constant var]' so it has to be hardcoded.  The formula
-# for calculating the encoding size is:
-#     TX_BLOCK_DECODE_LEN + 
-#     TX_NUM_TRANSFERS_LEN +
-#     MAX_TRANSFERS * TRANSFER_LEN 
-# Currently we take MAX_TRANSFERS = 4, so the max TX encoding bytes is:
-# 4 + 1 + 4 * 68 = 277
-
-@public
-def getLeafHash(transactionEncoding: bytes[277]) -> bytes32:
-    return sha3(transactionEncoding)
-
-TX_BLOCKNUM_START: constant(int128) = 0
-TX_BLOCKNUM_LEN: constant(int128) = 4
-@public
-def decodeBlockNumber(transactionEncoding: bytes[277]) -> uint256:
-    bn: bytes[32] = slice(transactionEncoding,
-            start = TX_BLOCKNUM_START,
-            len = TX_BLOCKNUM_LEN)
-    return convert(bn, uint256)
-
-TX_NUM_TRANSFERS_START: constant(int128) = 4
-TX_NUM_TRANSFERS_LEN: constant(int128) = 1
-@public
-def decodeNumTransfers(transactionEncoding: bytes[277]) -> uint256:
-    num: bytes[2] = slice(transactionEncoding,
-            start = TX_NUM_TRANSFERS_START,
-            len = TX_NUM_TRANSFERS_LEN)
-    return convert(num, uint256)
-
-FIRST_TR_START: constant(int128) = 5
-TR_LEN: constant(int128) = 68
-@public
-def decodeIthTransfer(
-    index: int128,
-    transactionEncoding: bytes[277]
-) -> bytes[68]:
-    transfer: bytes[68] = slice(transactionEncoding,
-        start = TR_LEN * index + FIRST_TR_START,
-        len = TR_LEN
-    )
-    return transfer
-
-### BEGIN TRANSFER DECODING SECTION ###
-
-@private
-def bytes20ToAddress(addr: bytes[20]) -> address:
-    padded: bytes[52] = concat(EMPTY_BYTES32, addr)
-    return convert(convert(slice(padded, start=20, len=32), bytes32), address)
-
-SENDER_START: constant(int128) = 0
-SENDER_LEN: constant(int128) = 20
-@public
-def decodeSender(
-    transferEncoding: bytes[68]
-) -> address:
-    addr: bytes[20] = slice(transferEncoding,
-        start = SENDER_START,
-        len = SENDER_LEN)
-    return self.bytes20ToAddress(addr)
-
-RECIPIENT_START: constant(int128) = 20
-RECIPIENT_LEN: constant(int128) = 20
-@public
-def decodeRecipient(
-    transferEncoding: bytes[68]
-) -> address:
-    addr: bytes[20] = slice(transferEncoding,
-        start = RECIPIENT_START,
-        len = RECIPIENT_LEN)
-    return self.bytes20ToAddress(addr)
-
-TR_TOKEN_START: constant(int128) = 40
-TR_TOKEN_LEN: constant(int128) = 4
-@public
-def decodeTokenTypeBytes(
-    transferEncoding: bytes[68]
-) -> bytes[4]:
-    tokenType: bytes[4] = slice(transferEncoding, 
-        start = TR_TOKEN_START,
-        len = TR_TOKEN_LEN)
-    return tokenType
-
-@public
-def decodeTokenType(
-    transferEncoding: bytes[68]
-) -> uint256:
-    return convert(
-        self.decodeTokenTypeBytes(transferEncoding), 
-        uint256
-    )
-
-@public
-def getTypedFromTokenAndUntyped(tokenType: uint256, coinID: uint256) -> uint256:
-    return coinID + tokenType * (256**12)
-
-TR_UNTYPEDSTART_START: constant(int128) = 44
-TR_UNTYPEDSTART_LEN: constant(int128) = 12
-TR_UNTYPEDEND_START: constant(int128) = 56
-TR_UNTYPEDEND_LEN: constant(int128) = 12
-@public
-def decodeTypedTransferRange(
-    transferEncoding: bytes[68]
-) -> (uint256, uint256): # start, end
-    tokenType: bytes[4] = self.decodeTokenTypeBytes(transferEncoding)
-    untypedStart: bytes[12] = slice(transferEncoding,
-        start = TR_UNTYPEDSTART_START,
-        len = TR_UNTYPEDSTART_LEN)
-    untypedEnd: bytes[12] = slice(transferEncoding,
-        start = TR_UNTYPEDEND_START,
-        len = TR_UNTYPEDEND_LEN)
-    return (
-        convert(concat(tokenType, untypedStart), uint256),
-        convert(concat(tokenType, untypedEnd), uint256)
-    )
-
-### BEGIN TRANSFERPROOF DECODING SECTION ###
-
-# Note on TransferProofEncoding size:
-# It will always really be at most 
-# PARSED_SUM_LEN + LEAF_INDEX_LEN + ADDRESS_LEN + PROOF_COUNT_LEN + MAX_TREE_DEPTH * TREENODE_LEN
-# = 16 + 16 + 20 + 1 + 8 * 48 = 437
-# but because of dumb type casting in vyper, it thinks it *might* 
-# be larger because we slice the TX encoding to get it.  So it has to be
-# TRANSFERPROOF_COUNT_LEN + 437 * MAX_TRANSFERS = 1 + 1744 * 4 = 1749
-
-TREENODE_LEN: constant(int128) = 48
-
-PARSEDSUM_START: constant(int128) = 0
-PARSEDSUM_LEN: constant(int128) = 16
-@public
-def decodeParsedSumBytes(
-    transferProofEncoding: bytes[1749] 
-) -> bytes[16]:
-    parsedSum: bytes[16] = slice(transferProofEncoding,
-        start = PARSEDSUM_START,
-        len = PARSEDSUM_LEN)
-    return parsedSum
-
-LEAFINDEX_START: constant(int128) = 16
-LEAFINDEX_LEN: constant(int128) = 16
-@public
-def decodeLeafIndex(
-    transferProofEncoding: bytes[1749]
-) -> int128:
-    leafIndex: bytes[16] = slice(transferProofEncoding,
-        start = LEAFINDEX_START,
-        len = PARSEDSUM_LEN)
-    return convert(leafIndex, int128)
-
-SIG_START:constant(int128) = 32
-SIGV_OFFSET: constant(int128) = 0
-SIGV_LEN: constant(int128) = 1
-SIGR_OFFSET: constant(int128) = 1
-SIGR_LEN: constant(int128) = 32
-SIGS_OFFSET: constant(int128) = 33
-SIGS_LEN: constant(int128) = 32
-@public
-def decodeSignature(
-    transferProofEncoding: bytes[1749]
-) -> (
-    uint256, # v
-    uint256, # r
-    uint256 # s
-):
-    sig: bytes[65] = slice(transferProofEncoding,
-        start = SIG_START,
-        len = SIGV_LEN + SIGR_LEN + SIGS_LEN
-    )
-    sigV: bytes[1] = slice(sig,
-        start = SIGV_OFFSET,
-        len = SIGV_LEN)
-    sigR: bytes[32] = slice(sig,
-        start = SIGR_OFFSET,
-        len = SIGR_LEN)
-    sigS: bytes[32] = slice(sig,
-        start = SIGS_OFFSET,
-        len = SIGS_LEN)
-    return (
-        convert(sigV, uint256),
-        convert(sigR, uint256),
-        convert(sigS, uint256)
-    )
-
-NUMPROOFNODES_START: constant(int128) = 97
-NUMPROOFNODES_LEN: constant(int128) = 1
-@public
-def decodeNumInclusionProofNodesFromTRProof(transferProof: bytes[1749]) -> int128:
-    numNodes: bytes[1] = slice(
-        transferProof,
-        start = NUMPROOFNODES_START,
-        len = NUMPROOFNODES_LEN
-    )
-    return convert(numNodes, int128)
-
-INCLUSIONPROOF_START: constant(int128) = 98
-@public
-def decodeIthInclusionProofNode(
-    index: int128,
-    transferProofEncoding: bytes[1749]
-) -> bytes[48]: # = MAX_TREE_DEPTH * TREENODE_LEN = 384 is what it should be but because of variable in slice vyper won't let us say that :(
-    proofNode: bytes[48] = slice(transferProofEncoding, 
-        start = index * TREENODE_LEN + INCLUSIONPROOF_START,
-        len =  TREENODE_LEN)
-    return proofNode
-
-### BEGIN TRANSACTION PROOF DECODING SECTION ###
-
-# The smart contract assumes the number of nodes in every TRProof are equal.
-FIRST_TRANSFERPROOF_START: constant(int128) = 1
-@public
-def decodeNumInclusionProofNodesFromTXProof(transactionProof: bytes[1749]) -> int128:
-    firstTransferProof: bytes[1749] = slice(
-        transactionProof,
-        start = FIRST_TRANSFERPROOF_START,
-        len = NUMPROOFNODES_START + 1 # + 1 so we include the numNodes
-    )
-    return self.decodeNumInclusionProofNodesFromTRProof(firstTransferProof)
-
-
-NUMTRPROOFS_START: constant(int128) = 0
-NUMTRPROOFS_LEN: constant(int128) = 1
-@public
-def decodeNumTransactionProofs(
-    transactionProofEncoding: bytes[1749]
-) -> int128:
-    numInclusionProofs: bytes[1] = slice(
-        transactionProofEncoding,
-        start = NUMTRPROOFS_START,
-        len = NUMTRPROOFS_LEN
-    )
-    return convert(numInclusionProofs, int128)
-
-@public
-def decodeIthTransferProofWithNumNodes(
-    index: int128,
-    numInclusionProofNodes: int128,
-    transactionProofEncoding: bytes[1749]
-) -> bytes[1749]:
-    transactionProofLen: int128 = (
-        PARSEDSUM_LEN +
-        LEAFINDEX_LEN +
-        SIGS_LEN + SIGV_LEN + SIGR_LEN +
-        NUMPROOFNODES_LEN + 
-        TREENODE_LEN * numInclusionProofNodes
-    )
-    transferProof: bytes[1749] = slice(
-        transactionProofEncoding,
-        start = index * transactionProofLen + FIRST_TRANSFERPROOF_START,
-        len = transactionProofLen
-    )
-    return transferProof
-
 @public
 def checkTransferProofAndGetTypedBounds(
     leafHash: bytes32,
     blockNum: uint256,
     transferProof: bytes[1749]
 ) -> (uint256, uint256): # typedimplicitstart, typedimplicitEnd
-    parsedSum: bytes[16] = self.decodeParsedSumBytes(transferProof)
-    numProofNodes: int128 = self.decodeNumInclusionProofNodesFromTRProof(transferProof)
-    leafIndex: int128 = self.decodeLeafIndex(transferProof)
+    parsedSum: bytes[16] = Serializer(self.serializer).decodeParsedSumBytes(transferProof)
+    numProofNodes: int128 = Serializer(self.serializer).decodeNumInclusionProofNodesFromTRProof(transferProof)
+    leafIndex: int128 = Serializer(self.serializer).decodeLeafIndex(transferProof)
 
     computedNode: bytes[48] = concat(leafHash, parsedSum)
     totalSum: uint256 = convert(parsedSum, uint256)
@@ -368,7 +133,7 @@ def checkTransferProofAndGetTypedBounds(
     for nodeIndex in range(MAX_TREE_DEPTH):
         if nodeIndex == numProofNodes:
             break
-        proofNode: bytes[48] = self.decodeIthInclusionProofNode(nodeIndex, transferProof)
+        proofNode: bytes[48] = Serializer(self.serializer).decodeIthInclusionProofNode(nodeIndex, transferProof)
         siblingSum: uint256 = convert(slice(proofNode, start=32, len=16), uint256)
         totalSum += siblingSum
         hashed: bytes32
@@ -406,12 +171,12 @@ def checkTransactionProofAndGetTypedTransfer(
         uint256, # transfer.end (typed)
         uint256 # transaction plasmaBlockNumber
     ):
-    leafHash: bytes32 = self.getLeafHash(transactionEncoding)
-    plasmaBlockNumber: uint256 = self.decodeBlockNumber(transactionEncoding)
+    leafHash: bytes32 = Serializer(self.serializer).getLeafHash(transactionEncoding)
+    plasmaBlockNumber: uint256 = Serializer(self.serializer).decodeBlockNumber(transactionEncoding)
 
 
-    numTransfers: int128 = convert(self.decodeNumTransfers(transactionEncoding), int128)
-    numInclusionProofNodes: int128 = self.decodeNumInclusionProofNodesFromTXProof(transactionProofEncoding)
+    numTransfers: int128 = convert(Serializer(self.serializer).decodeNumTransfers(transactionEncoding), int128)
+    numInclusionProofNodes: int128 = Serializer(self.serializer).decodeNumInclusionProofNodesFromTXProof(transactionProofEncoding)
 
     requestedTypedTransferStart: uint256 # these will be the ones at the trIndex we are being asked about by the exit game
     requestedTypedTransferEnd: uint256
@@ -420,9 +185,9 @@ def checkTransactionProofAndGetTypedTransfer(
     for i in range(MAX_TRANSFERS):
         if i == numTransfers: #loop for max possible transfers, but break so we don't go past
             break
-        transferEncoding: bytes[68] = self.decodeIthTransfer(i, transactionEncoding)
+        transferEncoding: bytes[68] = Serializer(self.serializer).decodeIthTransfer(i, transactionEncoding)
         
-        transferProof: bytes[1749] = self.decodeIthTransferProofWithNumNodes(
+        transferProof: bytes[1749] = Serializer(self.serializer).decodeIthTransferProofWithNumNodes(
             i,
             numInclusionProofNodes,
             transactionProofEncoding
@@ -440,7 +205,7 @@ def checkTransactionProofAndGetTypedTransfer(
         transferTypedStart: uint256
         transferTypedEnd: uint256
 
-        (transferTypedStart, transferTypedEnd) = self.decodeTypedTransferRange(transferEncoding)
+        (transferTypedStart, transferTypedEnd) = Serializer(self.serializer).decodeTypedTransferRange(transferEncoding)
 
         assert implicitTypedStart <= transferTypedStart
         assert transferTypedStart < transferTypedEnd
@@ -450,18 +215,17 @@ def checkTransactionProofAndGetTypedTransfer(
         v: uint256 # v
         r: uint256 # r
         s: uint256 # s
-        (v, r, s) = self.decodeSignature(transferProof)
-        sender: address = self.decodeSender(transferEncoding)
+        (v, r, s) = Serializer(self.serializer).decodeSignature(transferProof)
+        sender: address = Serializer(self.serializer).decodeSender(transferEncoding)
 
         messageHash: bytes32 = sha3(concat(self.MESSAGE_PREFIX, leafHash))
         assert sender == ecrecover(messageHash, v, r, s)
 
         if i == transferIndex:
-            requestedTransferTo = self.decodeRecipient(transferEncoding)
+            requestedTransferTo = Serializer(self.serializer).decodeRecipient(transferEncoding)
             requestedTransferFrom = sender
             requestedTypedTransferStart = transferTypedStart
             requestedTypedTransferEnd = transferTypedEnd
-
 
     return (
         requestedTransferTo,
@@ -474,14 +238,13 @@ def checkTransactionProofAndGetTypedTransfer(
 ### BEGIN CONTRACT LOGIC ###
 
 @public
-def setup(_operator: address, ethDecimalOffset: uint256, paddedMessagePrefix: bytes32): # last val should be properly hardcoded as a constant eventually
+def setup(_operator: address, ethDecimalOffset: uint256, serializerAddr: address, paddedMessagePrefix: bytes32): # last val should be properly hardcoded as a constant eventually
     assert self.isSetup == False
     self.operator = _operator
     self.nextPlasmaBlockNumber = 1 # starts at 1 so deposits before the first block have a precedingPlasmaBlock of 0 since it can't be negative (it's a uint)
     self.exitNonce = 0
     self.lastPublish = 0
     self.challengeNonce = 0
-    self.totalDeposited = 0
     self.exitable[0][0].isSet = True
     self.listingNonce = 1 # first list is ETH baby!!!
 
@@ -490,6 +253,8 @@ def setup(_operator: address, ethDecimalOffset: uint256, paddedMessagePrefix: by
 
     #do the thing to get a bytes[28] prefix for message hash gen
     self.MESSAGE_PREFIX = slice(concat(paddedMessagePrefix, paddedMessagePrefix), start = 4, len = 28)
+
+    self.serializer = serializerAddr
 
     self.isSetup = True
     
@@ -527,11 +292,11 @@ def listToken(tokenAddress: address, denomination: uint256):
 def processDeposit(depositer: address, depositAmount: uint256, tokenType: uint256):
     assert depositAmount > 0
 
-    oldUntypedEnd: uint256 = self.totalDeposited
+    oldUntypedEnd: uint256 = self.totalDeposited[tokenType]
     oldRange: exitableRange = self.exitable[tokenType][oldUntypedEnd] # remember, map is end -> start!
 
-    self.totalDeposited += depositAmount # add deposit
-    newUntypedEnd: uint256 = self.totalDeposited # this is how much there is now, so the end of this deposit.
+    self.totalDeposited[tokenType] += depositAmount # add deposit
+    newUntypedEnd: uint256 = self.totalDeposited[tokenType] # this is how much there is now, so the end of this deposit.
     # removed, replace with per ERC -->    assert self.totalDeposited < MAX_END # make sure we're not at capacity
     clear(self.exitable[tokenType][oldUntypedEnd]) # delete old exitable range
     self.exitable[tokenType][newUntypedEnd] = oldRange #make exitable
@@ -607,7 +372,7 @@ def removeFromExitable(tokenType: uint256, untypedStart: uint256, untypedEnd: ui
         self.exitable[tokenType][exitableEnd].untypedStart = untypedEnd # and it starts at the end of the finalized exit!
         self.exitable[tokenType][exitableEnd].isSet = True
     else: # otherwise, no leftovers on the right, so we can delete the map entry...
-        if untypedEnd != self.totalDeposited: # ...UNLESS it's the rightmost deposited value, which we need to keep (even though it will be "empty", i.e. have start == end,because submitDeposit() uses it to make the new deposit exitable)
+        if untypedEnd != self.totalDeposited[tokenType]: # ...UNLESS it's the rightmost deposited value, which we need to keep (even though it will be "empty", i.e. have start == end,because submitDeposit() uses it to make the new deposit exitable)
             clear(self.exitable[tokenType][untypedEnd])
         else: # and if it is the rightmost, 
             self.exitable[tokenType][untypedEnd].untypedStart = untypedEnd # start = end so won't ever be exitable, but allows for new deposit logic to work
@@ -657,8 +422,8 @@ def challengeBeforeDeposit(
     depositUntypedStart: uint256 = self.deposits[exitTokenType][depositUntypedEnd].untypedStart
 
     tokenType: uint256 = self.exits[exitID].tokenType
-    depositTypedStart: uint256 = self.getTypedFromTokenAndUntyped(tokenType, depositUntypedStart)
-    depositTypedEnd: uint256 = self.getTypedFromTokenAndUntyped(tokenType, depositUntypedEnd)
+    depositTypedStart: uint256 = Serializer(self.serializer).getTypedFromTokenAndUntyped(tokenType, depositUntypedStart)
+    depositTypedEnd: uint256 = Serializer(self.serializer).getTypedFromTokenAndUntyped(tokenType, depositUntypedEnd)
 
     assert coinID >= depositTypedStart
     assert coinID < depositTypedEnd
@@ -786,8 +551,8 @@ def challengeSpentCoin(
     exiter: address = self.exits[exitID].exiter
     exitPlasmaBlockNumber: uint256 = self.exits[exitID].plasmaBlockNumber
     exitTokenType: uint256 = self.exits[exitID].tokenType
-    exitTypedStart: uint256 = self.getTypedFromTokenAndUntyped(exitTokenType, self.exits[exitID].untypedStart)
-    exitTypedEnd: uint256 = self.getTypedFromTokenAndUntyped(exitTokenType, self.exits[exitID].untypedEnd)
+    exitTypedStart: uint256 = Serializer(self.serializer).getTypedFromTokenAndUntyped(exitTokenType, self.exits[exitID].untypedStart)
+    exitTypedEnd: uint256 = Serializer(self.serializer).getTypedFromTokenAndUntyped(exitTokenType, self.exits[exitID].untypedEnd)
 
     # check the coinspend came after the exit block
     assert bn > exitPlasmaBlockNumber
@@ -822,8 +587,8 @@ def challengeInvalidHistory(
 
     # check the coinspend intersects the exit
     tokenType: uint256 = self.exits[exitID].tokenType
-    exitTypedStart: uint256 = self.getTypedFromTokenAndUntyped(tokenType, self.exits[exitID].untypedStart)
-    exitTypedEnd: uint256 = self.getTypedFromTokenAndUntyped(tokenType, self.exits[exitID].untypedEnd)
+    exitTypedStart: uint256 = Serializer(self.serializer).getTypedFromTokenAndUntyped(tokenType, self.exits[exitID].untypedStart)
+    exitTypedEnd: uint256 = Serializer(self.serializer).getTypedFromTokenAndUntyped(tokenType, self.exits[exitID].untypedEnd)
 
     assert coinID >= exitTypedStart
     assert coinID < exitTypedEnd
@@ -899,8 +664,8 @@ def challengeInvalidHistoryWithDeposit(
     depositBlockNumber: uint256 = self.deposits[tokenType][depositUntypedEnd].precedingPlasmaBlockNumber
 
    # check the coinspend intersects the exit
-    depositTypedStart: uint256 = self.getTypedFromTokenAndUntyped(tokenType, self.deposits[tokenType][depositUntypedEnd].untypedStart)
-    depositTypedEnd: uint256 = self.getTypedFromTokenAndUntyped(tokenType, depositUntypedEnd)
+    depositTypedStart: uint256 = Serializer(self.serializer).getTypedFromTokenAndUntyped(tokenType, self.deposits[tokenType][depositUntypedEnd].untypedStart)
+    depositTypedEnd: uint256 = Serializer(self.serializer).getTypedFromTokenAndUntyped(tokenType, depositUntypedEnd)
 
     self.challengeInvalidHistory(
         exitID,
@@ -918,7 +683,6 @@ def respondInvalidHistoryTransaction(
         transactionEncoding: bytes[277],
         transactionProofEncoding: bytes[1749],
 ):
-
     assert self.invalidHistoryChallenges[challengeID].ongoing
 
     transferTypedStart: uint256 # these will be the ones at the trIndex we are being asked about by the exit game
@@ -977,8 +741,8 @@ def respondInvalidHistoryDeposit(
     chalCoinID: uint256 = self.invalidHistoryChallenges[challengeID].coinID
     depositUntypedStart: uint256 = self.deposits[exitTokenType][depositUntypedEnd].untypedStart
 
-    depositTypedStart: uint256 = self.getTypedFromTokenAndUntyped(exitTokenType, depositUntypedStart)
-    depositTypedEnd: uint256 = self.getTypedFromTokenAndUntyped(exitTokenType, depositUntypedEnd)
+    depositTypedStart: uint256 = Serializer(self.serializer).getTypedFromTokenAndUntyped(exitTokenType, depositUntypedStart)
+    depositTypedEnd: uint256 = Serializer(self.serializer).getTypedFromTokenAndUntyped(exitTokenType, depositUntypedEnd)
     
     assert chalCoinID >= depositTypedStart
     assert chalCoinID <= depositTypedEnd

@@ -13,6 +13,10 @@ async function compilePlasmaChainContract () {
   return compileVyper('./contracts/PlasmaChain.vy')
 }
 
+async function compileSerializationContract () {
+  return compileVyper('./contracts/Serialization.vy')
+}
+
 async function compilePlasmaRegistryContract () {
   return compileVyper('./contracts/PlasmaRegistry.vy')
 }
@@ -25,6 +29,7 @@ module.exports = {
   contracts: {
     compileVyper,
     compilePlasmaChainContract,
+    compileSerializationContract,
     compilePlasmaRegistryContract,
     compileTokenContract
   }

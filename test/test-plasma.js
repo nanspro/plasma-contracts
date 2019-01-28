@@ -27,13 +27,13 @@ const web3 = setup.web3
 const CHALLENGE_PERIOD = 20
 
 describe('Plasma Smart Contract', () => {
-  let bytecode, abi, plasma, operatorSetup, freshContractSnapshot
+  let bytecode, abi, plasma, operatorSetup, freshContractSnapshot, serializer
   const dummyBlockHash = '0x0000000000000000000000000000000000000000000000000000000000000000'
   // BEGIN SETUP
   before(async () => {
     // setup ganache, deploy, etc.
     [
-      bytecode, abi, plasma, operatorSetup, freshContractSnapshot
+      bytecode, abi, plasma, operatorSetup, freshContractSnapshot, serializer
     ] = await setup.setupPlasma()
   })
   describe('Deployment', () => {
@@ -93,35 +93,35 @@ describe('Plasma Smart Contract', () => {
     })
     describe('Transfer Decoding', () => {
       it('should decode a transfer sender', async () => {
-        const decoded = await plasma.methods.decodeSender(randomTransferEncoding).call()
+        const decoded = await serializer.methods.decodeSender(randomTransferEncoding).call()
         const expected = randomTX.transfers[randomTransferIndex].sender.toLowerCase()
         assert.equal(decoded.toLowerCase(), expected)
       })
       it('should decode a transfer recipient', async () => {
-        const decoded = await plasma.methods.decodeRecipient(randomTransferEncoding).call()
+        const decoded = await serializer.methods.decodeRecipient(randomTransferEncoding).call()
         const expected = randomTX.transfers[randomTransferIndex].recipient.toLowerCase()
         assert.equal(decoded.toLowerCase(), expected)
       })
       it('should decode a token type bytes', async () => {
-        const decoded = await plasma.methods.decodeTokenTypeBytes(randomTransferEncoding).call()
+        const decoded = await serializer.methods.decodeTokenTypeBytes(randomTransferEncoding).call()
         const expected = '0x' + randomTX.transfers[randomTransferIndex].token.toString(16, 8)
         assert.equal(decoded, expected)
       })
       it('should decode a token type as uint', async () => {
-        const decoded = await plasma.methods.decodeTokenType(randomTransferEncoding).call()
+        const decoded = await serializer.methods.decodeTokenType(randomTransferEncoding).call()
         const expected = randomTX.transfers[randomTransferIndex].token.toString()
         assert.equal(decoded, expected)
       })
       it('should convert an untyped coinID to typed given the tokenType', async () => {
         const untyped = 5
         const type = 2
-        const typed = await plasma.methods.getTypedFromTokenAndUntyped(type, untyped).call()
+        const typed = await serializer.methods.getTypedFromTokenAndUntyped(type, untyped).call()
         
         const expected = '158456325028528675187087900677'
         assert.equal(typed, expected)
       })
       it('should decode a transfer range', async () => {
-        const decoded = await plasma.methods.decodeTypedTransferRange(randomTransferEncoding).call()
+        const decoded = await serializer.methods.decodeTypedTransferRange(randomTransferEncoding).call()
         const expectedType = randomTX.transfers[randomTransferIndex].token.toString(16, 8)
         const expectedStart = randomTX.transfers[randomTransferIndex].start.toString(16, 12)
         const expectedEnd = randomTX.transfers[randomTransferIndex].end.toString(16, 12)
@@ -135,22 +135,22 @@ describe('Plasma Smart Contract', () => {
     })
     describe('Transaction Decoding', () => {
       it('should getLeafHash of an encoded transaction', async () => {
-        const possibleHash = await plasma.methods.getLeafHash(randomTXEncoding).call()
+        const possibleHash = await serializer.methods.getLeafHash(randomTXEncoding).call()
         assert.equal(possibleHash, randomTX.hash)
       })
       it('should decodeBlockNumber from a tx', async () => {
-        const decoded = await plasma.methods.decodeBlockNumber(randomTXEncoding).call()
+        const decoded = await serializer.methods.decodeBlockNumber(randomTXEncoding).call()
         const expected = new BigNum(randomTX.block).toString()
         assert.equal(decoded, expected)
       })
       it('should decodeNumTransfers from a tx', async () => {
-        const decoded = await plasma.methods.decodeNumTransfers(randomTXEncoding).call()
+        const decoded = await serializer.methods.decodeNumTransfers(randomTXEncoding).call()
         const expected = new BigNum(randomTX.transfers.length).toString()
         assert.equal(decoded, expected)
       })
       it('should decode the ith transfer', async () => {
         const index = 0
-        const decoded = await plasma.methods.decodeIthTransfer(index, randomTXEncoding).call()
+        const decoded = await serializer.methods.decodeIthTransfer(index, randomTXEncoding).call()
         const transfer = randomTX.transfers[index]
         const expected = '0x' + new Transfer(transfer).encoded.toString().toLowerCase()
         assert.equal(decoded, expected)
@@ -158,18 +158,18 @@ describe('Plasma Smart Contract', () => {
     })
     describe('Transfer Proof Decoding', () => {
       it('should decodeParsedSumBytes', async () => {
-        const decoded = await plasma.methods.decodeParsedSumBytes('0x' + encodedTransferProof).call()
+        const decoded = await serializer.methods.decodeParsedSumBytes('0x' + encodedTransferProof).call()
         const expected = '0x' + testTransferProof.parsedSum.toString(16, 32)
         assert.equal(decoded, expected)
       })
       it('should decodeLeafIndex', async () => {
-        const decoded = await plasma.methods.decodeLeafIndex('0x' + encodedTransferProof).call()
+        const decoded = await serializer.methods.decodeLeafIndex('0x' + encodedTransferProof).call()
 
         const expected = testTransferProof.leafIndex.toString()
         assert.equal(decoded, expected)
       })
       it('should decodeSignature', async () => {
-        const decoded = await plasma.methods.decodeSignature('0x' + encodedTransferProof).call()
+        const decoded = await serializer.methods.decodeSignature('0x' + encodedTransferProof).call()
         const expected = [
           new BigNum(testTransferProof.signature.v).toString(),
           new BigNum(testTransferProof.signature.r).toString(),
@@ -180,30 +180,30 @@ describe('Plasma Smart Contract', () => {
         assert.equal(decoded[2], expected[2])
       })
       it('should decodeNumInclusionProofNodesFromTRProof', async () => {
-        const decoded = await plasma.methods.decodeNumInclusionProofNodesFromTRProof('0x' + encodedTransferProof).call()
+        const decoded = await serializer.methods.decodeNumInclusionProofNodesFromTRProof('0x' + encodedTransferProof).call()
         const expected = testTransferProof.inclusionProof.length
         assert.equal(decoded, expected)
       })
       it('should decodeIthInclusionProofNode', async () => {
-        const decoded = await plasma.methods.decodeIthInclusionProofNode(0, '0x' + encodedTransferProof).call()
+        const decoded = await serializer.methods.decodeIthInclusionProofNode(0, '0x' + encodedTransferProof).call()
         const expected = '0x' + new BigNum(testTransferProof.inclusionProof[0]).toString(16)
         assert.equal(decoded, expected)
       })
     })
     describe('Transaction Proof Decoding', () => {
       it('should decodeNumTransactionProofs', async () => {
-        const decoded = await plasma.methods.decodeNumTransactionProofs('0x' + encodedTransactionProof).call()
+        const decoded = await serializer.methods.decodeNumTransactionProofs('0x' + encodedTransactionProof).call()
         const expected = new BigNum(transactionProof.transferProofs.length).toString()
         assert.equal(decoded, expected)
       })
 
       it('should decodeNumInclusionProofNodesFromTXProof', async () => {
-        const decoded = await plasma.methods.decodeNumInclusionProofNodesFromTXProof('0x' + encodedTransactionProof).call()
+        const decoded = await serializer.methods.decodeNumInclusionProofNodesFromTXProof('0x' + encodedTransactionProof).call()
         const expected = testTransferProof.inclusionProof.length
         assert.equal(decoded, expected)
       })
       it('should decodeIthTransferProofWithNumNodes', async () => {
-        const decoded = await plasma.methods.decodeIthTransferProofWithNumNodes(0, 1, '0x' + encodedTransactionProof).call()
+        const decoded = await serializer.methods.decodeIthTransferProofWithNumNodes(0, 1, '0x' + encodedTransactionProof).call()
         const expected = '0x' + encodedTransferProof
         assert.equal(decoded, expected)
       })
