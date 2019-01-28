@@ -140,7 +140,7 @@ async function setupPlasma () {
   // const deploymentTransaction = await web3.eth.getTransaction(block.transactions[0]) // eslint-disable-line no-unused-vars
   const weiDecimalOffset = 0 // so it'll be wei
   debugger
-  operatorSetup = await plasma.methods.setup(web3.eth.accounts.wallet[0].address, weiDecimalOffset, ser._address, '0x0000000019457468657265756d205369676e6564204d6573736167653a0a3332').send()
+  operatorSetup = await plasma.methods.setup(web3.eth.accounts.wallet[0].address, weiDecimalOffset, ser._address).send()
   freshContractSnapshot = await getCurrentChainSnapshot()
   return [bytecode, abi, plasma, operatorSetup, freshContractSnapshot, ser]
 }
