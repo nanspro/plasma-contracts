@@ -40,7 +40,7 @@ contract ERC20:
 
 # Events to log in web3
 ListingEvent: event({tokenType: uint256, tokenAddress: address})
-DepositEvent: event({depositer: indexed(address), tokenType: uint256, untypedStart: uint256, untypedEnd: uint256})
+DepositEvent: event({plasmaBlockNumber: indexed(uint256), depositer: indexed(address), tokenType: uint256, untypedStart: uint256, untypedEnd: uint256})
 SubmitBlockEvent: event({blockNumber: indexed(uint256), submittedHash: indexed(bytes32)})
 BeginExitEvent: event({tokenType: indexed(uint256), untypedStart: indexed(uint256), untypedEnd: indexed(uint256), exiter: address, exitID: uint256})
 FinalizeExitEvent: event({tokenType: indexed(uint256), untypedStart: indexed(uint256), untypedEnd: indexed(uint256), exitID: uint256})
@@ -539,7 +539,7 @@ def processDeposit(depositer: address, depositAmount: uint256, tokenType: uint25
     self.deposits[tokenType][newUntypedEnd].precedingPlasmaBlockNumber = self.nextPlasmaBlockNumber - 1
 
     # log the deposit so participants can take note
-    log.DepositEvent(depositer, tokenType, oldUntypedEnd, newUntypedEnd)
+    log.DepositEvent(self.nextPlasmaBlockNumber - 1, depositer, tokenType, oldUntypedEnd, newUntypedEnd)
 
 
 @public
