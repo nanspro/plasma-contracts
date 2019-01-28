@@ -487,8 +487,16 @@ def respondTransactionInclusion(
     # check exit exiter is indeed recipient
     assert transferRecipient == exiter
 
-    #check the inclusion was indeed at this block
+    # check the inclusion was indeed at this block
     assert exitPlasmaBlockNumber == responseBlockNumber
+
+    # check the inclusion for relevant bounds
+    exitTokenType: uint256 = self.exits[exitID].tokenType
+    exitTypedStart: uint256 = Serializer(self.serializer).getTypedFromTokenAndUntyped(exitTokenType, self.exits[exitID].untypedStart)
+    exitTypedEnd: uint256 = Serializer(self.serializer).getTypedFromTokenAndUntyped(exitTokenType, self.exits[exitID].untypedEnd)
+
+    assert transferTypedStart >= exitTypedStart
+    assert transferTypedEnd <= exitTypedEnd
 
     # response was successful
     clear(self.inclusionChallenges[challengeID])
@@ -497,7 +505,7 @@ def respondTransactionInclusion(
 @public
 def respondDepositInclusion(
     challengeID: uint256,
-    depositEnd: uint256
+    depositUntypedEnd: uint256
 ):
     assert self.inclusionChallenges[challengeID].ongoing
     
@@ -507,12 +515,22 @@ def respondDepositInclusion(
     exitTokenType: uint256 = self.exits[exitID].tokenType
 
     # check exit exiter is indeed recipient
-    depositer: address = self.deposits[exitTokenType][depositEnd].depositer
+    depositer: address = self.deposits[exitTokenType][depositUntypedEnd].depositer
     assert depositer == exiter
 
     #check the inclusion was indeed at this block
-    depositBlockNumber: uint256 = self.deposits[exitTokenType][depositEnd].precedingPlasmaBlockNumber
+    depositBlockNumber: uint256 = self.deposits[exitTokenType][depositUntypedEnd].precedingPlasmaBlockNumber
     assert exitPlasmaBlockNumber == depositBlockNumber
+
+    # chcek the inclusion was indeed within the bounds
+    exitTypedStart: uint256 = Serializer(self.serializer).getTypedFromTokenAndUntyped(exitTokenType, self.exits[exitID].untypedStart)
+    exitTypedEnd: uint256 = Serializer(self.serializer).getTypedFromTokenAndUntyped(exitTokenType, self.exits[exitID].untypedEnd)
+
+    depositTypedStart: uint256 = Serializer(self.serializer).getTypedFromTokenAndUntyped(exitTokenType, self.deposits[exitTokenType][depositUntypedEnd].untypedStart)
+    depositTypedEnd: uint256 = Serializer(self.serializer).getTypedFromTokenAndUntyped(exitTokenType, depositUntypedEnd)
+
+    assert depositTypedStart >= exitTypedStart
+    assert depositTypedEnd <= exitTypedEnd
 
     # response was successful
     clear(self.inclusionChallenges[challengeID])
