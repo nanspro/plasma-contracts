@@ -249,7 +249,7 @@ def setup(_operator: address, ethDecimalOffset: uint256, serializerAddr: address
     self.listingNonce = 1 # first list is ETH baby!!!
 
     self.MAX_COINS_PER_TOKEN = 256**12
-    self.weiDecimalOffset = ethDecimalOffset
+    self.weiDecimalOffset = 0 # ethDecimalOffset setting to 0 for now until enabled in core
 
     #do the thing to get a bytes[28] prefix for message hash gen
     self.MESSAGE_PREFIX = slice(concat(paddedMessagePrefix, paddedMessagePrefix), start = 4, len = 28)
@@ -280,7 +280,7 @@ def listToken(tokenAddress: address, denomination: uint256):
 
     self.listed[tokenAddress] = tokenType
 
-    self.listings[tokenType].decimalOffset = denomination
+    self.listings[tokenType].decimalOffset = 0 # denomination setting to 0 now until core supports
     self.listings[tokenType].contractAddress = tokenAddress
 
     self.exitable[tokenType][0].isSet = True # init the new token exitable ranges
