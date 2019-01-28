@@ -37,7 +37,6 @@ contract ERC20:
     def transferFrom(_from: address, _to: address, _value: uint256) -> bool: modifying
     def transfer(_to: address, _value: uint256) -> bool: modifying
 
-
 # Events to log in web3
 ListingEvent: event({tokenType: uint256, tokenAddress: address})
 DepositEvent: event({plasmaBlockNumber: indexed(uint256), depositer: indexed(address), tokenType: uint256, untypedStart: uint256, untypedEnd: uint256})
@@ -73,6 +72,13 @@ challengeNonce: public(uint256)
 
 isSetup: public(bool)
 
+# publics for ethereum message hash gen
+# this is "\x19Ethereum Signed Message:\n32"
+#PADDED_PREFIX: constant(bytes32) = 0x0000000019457468657265756d205369676e6564204d6573736167653a0a3332
+#PADDED_PREFIX: constant(bytes32) = EMPTY_BYTES32
+# pad and concat with self and slice at startup is the only way to get from string literal...
+MESSAGE_PREFIX: public(bytes[28])
+
 # period (of ethereum blocks) during which an exit can be challenged
 CHALLENGE_PERIOD: constant(uint256) = 20
 # period (of ethereum blocks) during which an invalid history history challenge can be responded
@@ -84,16 +90,6 @@ MAX_COINS_PER_TOKEN: public(uint256)
 
 MAX_TREE_DEPTH: constant(int128) = 8
 MAX_TRANSFERS: constant(uint256) = 4
-
-# @public
-# def ecrecover_util(message_hash: bytes32, signature: bytes[65]) -> address:
-#     v: uint256 = extract32(slice(signature, start=0, len=32), 0, type=uint256)
-#     r: uint256 = extract32(slice(signature, start=32, len=64), 0, type=uint256)
-#     s: bytes[1] = slice(signature, start=64, len=1)
-#     s_pad: uint256 = extract32(s, 0, type=uint256)
-#
-#     addr: address = ecrecover(message_hash, v, r, s_pad)
-#     return addr
 
 ### BEGIN TRANSACTION DECODING SECION ###
 
@@ -450,12 +446,15 @@ def checkTransactionProofAndGetTypedTransfer(
         assert transferTypedStart < transferTypedEnd
         assert transferTypedEnd <= implicitTypedEnd
 
+        #check the sig
         v: uint256 # v
         r: uint256 # r
         s: uint256 # s
         (v, r, s) = self.decodeSignature(transferProof)
         sender: address = self.decodeSender(transferEncoding)
-        # TODO: add signature check here!
+
+        messageHash: bytes32 = sha3(concat(self.MESSAGE_PREFIX, leafHash))
+        assert sender == ecrecover(messageHash, v, r, s)
 
         if i == transferIndex:
             requestedTransferTo = self.decodeRecipient(transferEncoding)
@@ -475,7 +474,7 @@ def checkTransactionProofAndGetTypedTransfer(
 ### BEGIN CONTRACT LOGIC ###
 
 @public
-def setup(_operator: address, ethDecimalOffset: uint256): # last val should be properly hardcoded as a constant eventually
+def setup(_operator: address, ethDecimalOffset: uint256, paddedMessagePrefix: bytes32): # last val should be properly hardcoded as a constant eventually
     assert self.isSetup == False
     self.operator = _operator
     self.nextPlasmaBlockNumber = 1 # starts at 1 so deposits before the first block have a precedingPlasmaBlock of 0 since it can't be negative (it's a uint)
@@ -488,6 +487,9 @@ def setup(_operator: address, ethDecimalOffset: uint256): # last val should be p
 
     self.MAX_COINS_PER_TOKEN = 256**12
     self.weiDecimalOffset = ethDecimalOffset
+
+    #do the thing to get a bytes[28] prefix for message hash gen
+    self.MESSAGE_PREFIX = slice(concat(paddedMessagePrefix, paddedMessagePrefix), start = 4, len = 28)
 
     self.isSetup = True
     
@@ -586,7 +588,6 @@ def beginExit(tokenType: uint256, blockNumber: uint256, untypedStart: uint256, u
     #log the event
     log.BeginExitEvent(tokenType, untypedStart, untypedEnd, exiter, exitID)
 
-
 @public
 def checkRangeExitable(tokenType: uint256, untypedStart: uint256, untypedEnd: uint256, claimedExitableEnd: uint256):
     assert untypedEnd <= self.MAX_COINS_PER_TOKEN
@@ -610,7 +611,6 @@ def removeFromExitable(tokenType: uint256, untypedStart: uint256, untypedEnd: ui
             clear(self.exitable[tokenType][untypedEnd])
         else: # and if it is the rightmost, 
             self.exitable[tokenType][untypedEnd].untypedStart = untypedEnd # start = end so won't ever be exitable, but allows for new deposit logic to work
-
 
 @public
 def finalizeExit(exitID: uint256, exitableEnd: uint256):

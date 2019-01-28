@@ -164,7 +164,6 @@ describe('ERC20 Token Support', () => {
       ...txCUnsigned,
       ...{ signatures: [plasmaUtils.utils.sign(txCUnsigned.hash, web3.eth.accounts.wallet[3].privateKey)] }
     })
-    debugger
 
     // Get some random transactions so make a tree with.  Note that they will be invalid--but we're not checking them so who cares! :P
     const otherTXs = genSequentialTXs(300).slice(299)

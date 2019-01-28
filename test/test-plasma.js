@@ -216,11 +216,7 @@ describe('Plasma Smart Contract', () => {
     before(async () => {
       // tree for testing branch checking
       TXIndex = 0
-      txs = genSequentialTXs(2)
-      txs = txs.map((tx) => {
-        tx.block = new BigNum(1)
-        return tx
-      })
+      txs = genSequentialTXs(2, 1)
       tx = txs[TXIndex]
       tree = new PlasmaMerkleSumTree(txs)
     })
@@ -338,7 +334,7 @@ describe('Plasma Smart Contract', () => {
         {
           sender: alice,
           recipient: bob,
-          type: type,
+          token: type,
           start: start,
           end: end
         }
@@ -354,7 +350,7 @@ describe('Plasma Smart Contract', () => {
         {
           sender: bob,
           recipient: carol,
-          type: type,
+          token: type,
           start: start,
           end: end + 100 // used for invalidHistoryDepositResponse below
         }
@@ -370,7 +366,7 @@ describe('Plasma Smart Contract', () => {
         {
           sender: carol,
           recipient: dave,
-          type: type,
+          token: type,
           start: start,
           end: end
         }
@@ -378,7 +374,7 @@ describe('Plasma Smart Contract', () => {
     })
     const txC = new SignedTransaction({
       ...txCUnsigned,
-      ...{ signatures: [plasmaUtils.utils.sign(txCUnsigned.hash, web3.eth.accounts.wallet[2].privateKey)] }
+      ...{ signatures: [plasmaUtils.utils.sign(txCUnsigned.hash, web3.eth.accounts.wallet[3].privateKey)] }
     })
 
     // Get some random transactions so make a tree with.  Note that they will be invalid--but we're not checking them so who cares! :P
@@ -415,6 +411,7 @@ describe('Plasma Smart Contract', () => {
 
       const chalCount = await plasma.methods.exits__challengeCount(exitID).call()
       assert.equal(chalCount, '1')
+      debugger
 
       const transferIndex = 0
       const unsigned = new UnsignedTransaction(txC)
@@ -424,6 +421,7 @@ describe('Plasma Smart Contract', () => {
         '0x' + unsigned.encoded,
         '0x' + blocks['C'].getTransactionProof(txC).encoded
       ).send()
+      debugger
 
       const newChalCount = await plasma.methods.exits__challengeCount(exitID).call()
       assert.equal(newChalCount, '0')

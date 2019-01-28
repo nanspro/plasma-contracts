@@ -21,7 +21,7 @@ for (let i = 0; i < 5; i++) {
   web3.eth.accounts.wallet.add(privateKey)
 }
 // For all provider options, see: https://github.com/trufflesuite/ganache-cli#library
-const providerOptions = { 'accounts': ganacheAccounts, 'locked': false }//, 'logger': console, 'debug': true }
+const providerOptions = { 'accounts': ganacheAccounts, 'locked': false, 'gasLimit': '0x996acfc0'}//, 'logger': console, 'debug': true }
 web3.setProvider(ganache.provider(providerOptions))
 
 async function mineBlock () {
@@ -114,7 +114,7 @@ async function setupPlasma () {
 
   const addr = web3.eth.accounts.wallet[0].address
 
-  const plasmaCt = new web3.eth.Contract(abi, addr, { from: addr, gas: 6500000, gasPrice: '300000' })
+  const plasmaCt = new web3.eth.Contract(abi, addr, { from: addr, gas: 100000000, gasPrice: '3000' })
 
   await mineBlock()
   // Now try to deploy
@@ -127,7 +127,7 @@ async function setupPlasma () {
   // const block = await web3.eth.getBlock('latest')
   // const deploymentTransaction = await web3.eth.getTransaction(block.transactions[0]) // eslint-disable-line no-unused-vars
   const weiDecimalOffset = 0 // so it'll be wei
-  operatorSetup = await plasma.methods.setup(web3.eth.accounts.wallet[0].address, weiDecimalOffset).send()
+  operatorSetup = await plasma.methods.setup(web3.eth.accounts.wallet[0].address, weiDecimalOffset, '0x0000000019457468657265756d205369676e6564204d6573736167653a0a3332').send()
   freshContractSnapshot = await getCurrentChainSnapshot()
   return [bytecode, abi, plasma, operatorSetup, freshContractSnapshot]
 }
@@ -141,7 +141,7 @@ async function setupToken () {
 
   const addr = web3.eth.accounts.wallet[1].address
 
-  const tokenCt = new web3.eth.Contract(tokenAbi, addr, { from: addr, gas: 6500000, gasPrice: '300000' })
+  const tokenCt = new web3.eth.Contract(tokenAbi, addr, { from: addr, gas: 6500000, gasPrice: '3000' })
 
   await mineBlock()
   const name = asBytes32('BenCoin')
