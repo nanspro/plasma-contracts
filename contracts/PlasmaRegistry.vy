@@ -4,14 +4,14 @@ contract PlasmaChain():
 NewPlasmaChain: event({PlasmaChainAddress: indexed(address), OperatorAddress: indexed(address), ChainMetadata: indexed(bytes32)})
 
 plasmaChainTemplate: public(address)
-serialized: public(address)
+serializer: public(address)
 
 @public
-def initializeRegistry(template: address, serializer: address):
+def initializeRegistry(template: address, serializerAddr: address):
     assert self.plasmaChainTemplate == ZERO_ADDRESS
     assert template != ZERO_ADDRESS
     self.plasmaChainTemplate = template
-    self.serializer = serializer
+    self.serializer = serializerAddr
 
 @public
 def createPlasmaChain(operator: address, ChainMetadata: bytes32) -> address:
