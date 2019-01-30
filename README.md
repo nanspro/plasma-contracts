@@ -16,7 +16,7 @@ $ git clone https://github.com/plasma-group/plasma-contracts.git
 ```
 or ssh:
 ```
-$ git@github.com:plasma-group/plasma-contracts.git
+$ git clone git@github.com:plasma-group/plasma-contracts.git
 ```
 
 #### Node.js
