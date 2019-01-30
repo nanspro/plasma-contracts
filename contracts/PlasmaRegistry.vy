@@ -5,7 +5,7 @@ NewPlasmaChain: event({PlasmaChainAddress: indexed(address), OperatorAddress: in
 
 plasmaChainTemplate: public(address)
 serializer: public(address)
-plasmaChainNames: public(map(address, bytes32))
+plasmaChainNames: public(map(bytes32, address))
 plasmaChainIPs: public(map(address, bytes32))
 
 @public
@@ -18,17 +18,13 @@ def initializeRegistry(template: address, serializerAddr: address):
 @public
 def createPlasmaChain(operator: address, plasmaChainName: bytes32, plasmaChainIP: bytes32) -> address:
     assert self.plasmaChainTemplate != ZERO_ADDRESS
+    assert self.plasmaChainNames[plasmaChainName] == ZERO_ADDRESS
     plasmaChain: address = create_with_code_of(self.plasmaChainTemplate)
     PlasmaChain(plasmaChain).setup(operator, 0, self.serializer)
-    self.plasmaChainNames[operator] = plasmaChainName
+    self.plasmaChainNames[plasmaChainName] = operator
     self.plasmaChainIPs[operator] = plasmaChainIP
     log.NewPlasmaChain(plasmaChain, operator, plasmaChainName, plasmaChainIP)
     return plasmaChain
-
-@public
-def setName (newName: bytes32) -> bytes32:
-    self.plasmaChainNames[msg.sender] = newName
-    return newName
 
 @public
 def setIP (newIP: bytes32) -> bytes32:
