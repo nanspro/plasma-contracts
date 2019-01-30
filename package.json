@@ -1,6 +1,6 @@
 {
   "name": "plasma-contracts",
-  "version": "0.0.3",
+  "version": "0.0.4-beta.0",
   "description": "PG Plasma smart contracts",
   "main": "index.js",
   "directories": {
