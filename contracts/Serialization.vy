@@ -12,12 +12,14 @@
 # 4 + 1 + 4 * 68 = 277
 
 @public
+@constant
 def getLeafHash(transactionEncoding: bytes[277]) -> bytes32:
     return sha3(transactionEncoding)
 
 TX_BLOCKNUM_START: constant(int128) = 0
 TX_BLOCKNUM_LEN: constant(int128) = 4
 @public
+@constant
 def decodeBlockNumber(transactionEncoding: bytes[277]) -> uint256:
     bn: bytes[32] = slice(transactionEncoding,
             start = TX_BLOCKNUM_START,
@@ -27,6 +29,7 @@ def decodeBlockNumber(transactionEncoding: bytes[277]) -> uint256:
 TX_NUM_TRANSFERS_START: constant(int128) = 4
 TX_NUM_TRANSFERS_LEN: constant(int128) = 1
 @public
+@constant
 def decodeNumTransfers(transactionEncoding: bytes[277]) -> uint256:
     num: bytes[2] = slice(transactionEncoding,
             start = TX_NUM_TRANSFERS_START,
@@ -36,6 +39,7 @@ def decodeNumTransfers(transactionEncoding: bytes[277]) -> uint256:
 FIRST_TR_START: constant(int128) = 5
 TR_LEN: constant(int128) = 68
 @public
+@constant
 def decodeIthTransfer(
     index: int128,
     transactionEncoding: bytes[277]
@@ -49,6 +53,7 @@ def decodeIthTransfer(
 ### BEGIN TRANSFER DECODING SECTION ###
 
 @public
+@constant
 def bytes20ToAddress(addr: bytes[20]) -> address:
     padded: bytes[52] = concat(EMPTY_BYTES32, addr)
     return convert(convert(slice(padded, start=20, len=32), bytes32), address)
@@ -56,6 +61,7 @@ def bytes20ToAddress(addr: bytes[20]) -> address:
 SENDER_START: constant(int128) = 0
 SENDER_LEN: constant(int128) = 20
 @public
+@constant
 def decodeSender(
     transferEncoding: bytes[68]
 ) -> address:
@@ -67,6 +73,7 @@ def decodeSender(
 RECIPIENT_START: constant(int128) = 20
 RECIPIENT_LEN: constant(int128) = 20
 @public
+@constant
 def decodeRecipient(
     transferEncoding: bytes[68]
 ) -> address:
@@ -78,6 +85,7 @@ def decodeRecipient(
 TR_TOKEN_START: constant(int128) = 40
 TR_TOKEN_LEN: constant(int128) = 4
 @public
+@constant
 def decodeTokenTypeBytes(
     transferEncoding: bytes[68]
 ) -> bytes[4]:
@@ -87,6 +95,7 @@ def decodeTokenTypeBytes(
     return tokenType
 
 @public
+@constant
 def decodeTokenType(
     transferEncoding: bytes[68]
 ) -> uint256:
@@ -96,6 +105,7 @@ def decodeTokenType(
     )
 
 @public
+@constant
 def getTypedFromTokenAndUntyped(tokenType: uint256, coinID: uint256) -> uint256:
     return coinID + tokenType * (256**12)
 
@@ -104,6 +114,7 @@ TR_UNTYPEDSTART_LEN: constant(int128) = 12
 TR_UNTYPEDEND_START: constant(int128) = 56
 TR_UNTYPEDEND_LEN: constant(int128) = 12
 @public
+@constant
 def decodeTypedTransferRange(
     transferEncoding: bytes[68]
 ) -> (uint256, uint256): # start, end
@@ -134,6 +145,7 @@ TREENODE_LEN: constant(int128) = 48
 PARSEDSUM_START: constant(int128) = 0
 PARSEDSUM_LEN: constant(int128) = 16
 @public
+@constant
 def decodeParsedSumBytes(
     transferProofEncoding: bytes[1749] 
 ) -> bytes[16]:
@@ -145,6 +157,7 @@ def decodeParsedSumBytes(
 LEAFINDEX_START: constant(int128) = 16
 LEAFINDEX_LEN: constant(int128) = 16
 @public
+@constant
 def decodeLeafIndex(
     transferProofEncoding: bytes[1749]
 ) -> int128:
@@ -161,6 +174,7 @@ SIGR_LEN: constant(int128) = 32
 SIGS_OFFSET: constant(int128) = 33
 SIGS_LEN: constant(int128) = 32
 @public
+@constant
 def decodeSignature(
     transferProofEncoding: bytes[1749]
 ) -> (
@@ -190,6 +204,7 @@ def decodeSignature(
 NUMPROOFNODES_START: constant(int128) = 97
 NUMPROOFNODES_LEN: constant(int128) = 1
 @public
+@constant
 def decodeNumInclusionProofNodesFromTRProof(transferProof: bytes[1749]) -> int128:
     numNodes: bytes[1] = slice(
         transferProof,
@@ -200,6 +215,7 @@ def decodeNumInclusionProofNodesFromTRProof(transferProof: bytes[1749]) -> int12
 
 INCLUSIONPROOF_START: constant(int128) = 98
 @public
+@constant
 def decodeIthInclusionProofNode(
     index: int128,
     transferProofEncoding: bytes[1749]
@@ -214,6 +230,7 @@ def decodeIthInclusionProofNode(
 # The smart contract assumes the number of nodes in every TRProof are equal.
 FIRST_TRANSFERPROOF_START: constant(int128) = 1
 @public
+@constant
 def decodeNumInclusionProofNodesFromTXProof(transactionProof: bytes[1749]) -> int128:
     firstTransferProof: bytes[1749] = slice(
         transactionProof,
@@ -226,6 +243,7 @@ def decodeNumInclusionProofNodesFromTXProof(transactionProof: bytes[1749]) -> in
 NUMTRPROOFS_START: constant(int128) = 0
 NUMTRPROOFS_LEN: constant(int128) = 1
 @public
+@constant
 def decodeNumTransactionProofs(
     transactionProofEncoding: bytes[1749]
 ) -> int128:
@@ -237,6 +255,7 @@ def decodeNumTransactionProofs(
     return convert(numInclusionProofs, int128)
 
 @public
+@constant
 def decodeIthTransferProofWithNumNodes(
     index: int128,
     numInclusionProofNodes: int128,

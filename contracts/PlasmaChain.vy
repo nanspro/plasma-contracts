@@ -115,6 +115,7 @@ MAX_TREE_DEPTH: constant(int128) = 8
 MAX_TRANSFERS: constant(uint256) = 4
 
 @public
+@constant
 def checkTransferProofAndGetTypedBounds(
     leafHash: bytes32,
     blockNum: uint256,
@@ -160,6 +161,7 @@ PROOF_MAX_LENGTH: constant(uint256) = 384 # 384 = TREENODE_LEN (48) * MAX_TREE_D
 ENCODING_LENGTH_PER_TRANSFER: constant(int128) = 165
 
 @public
+@constant
 def checkTransactionProofAndGetTypedTransfer(
         transactionEncoding: bytes[277],
         transactionProofEncoding: bytes[1749],
@@ -354,6 +356,7 @@ def beginExit(tokenType: uint256, blockNumber: uint256, untypedStart: uint256, u
     log.BeginExitEvent(tokenType, untypedStart, untypedEnd, exiter, exitID)
 
 @public
+@constant
 def checkRangeExitable(tokenType: uint256, untypedStart: uint256, untypedEnd: uint256, claimedExitableEnd: uint256):
     assert untypedEnd <= self.MAX_COINS_PER_TOKEN
     assert untypedEnd <= claimedExitableEnd
