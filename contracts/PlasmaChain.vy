@@ -49,14 +49,14 @@ contract Serializer:
     def decodeTokenType( transferEncoding: bytes[68] ) -> uint256: constant
     def getTypedFromTokenAndUntyped(tokenType: uint256, coinID: uint256) -> uint256: constant
     def decodeTypedTransferRange(transferEncoding: bytes[68] ) -> (uint256, uint256): constant
-    def decodeParsedSumBytes( transferProofEncoding: bytes[1749]  ) -> bytes[16]: constant
-    def decodeLeafIndex( transferProofEncoding: bytes[1749] ) -> int128: constant
-    def decodeSignature(transferProofEncoding: bytes[1749]) -> (uint256,  uint256, uint256): constant
-    def decodeNumInclusionProofNodesFromTRProof(transferProof: bytes[1749]) -> int128: constant
-    def decodeIthInclusionProofNode(index: int128, transferProofEncoding: bytes[1749]) -> bytes[48]: constant
-    def decodeNumInclusionProofNodesFromTXProof(transactionProof: bytes[1749]) -> int128: constant
-    def decodeNumTransactionProofs(transactionProofEncoding: bytes[1749]) -> int128: constant
-    def decodeIthTransferProofWithNumNodes(index: int128, numInclusionProofNodes: int128, transactionProofEncoding: bytes[1749]) -> bytes[1749]: constant
+    def decodeParsedSumBytes( transferProofEncoding: bytes[4821]  ) -> bytes[16]: constant
+    def decodeLeafIndex( transferProofEncoding: bytes[4821] ) -> int128: constant
+    def decodeSignature(transferProofEncoding: bytes[4821]) -> (uint256,  uint256, uint256): constant
+    def decodeNumInclusionProofNodesFromTRProof(transferProof: bytes[4821]) -> int128: constant
+    def decodeIthInclusionProofNode(index: int128, transferProofEncoding: bytes[4821]) -> bytes[48]: constant
+    def decodeNumInclusionProofNodesFromTXProof(transactionProof: bytes[4821]) -> int128: constant
+    def decodeNumTransactionProofs(transactionProofEncoding: bytes[4821]) -> int128: constant
+    def decodeIthTransferProofWithNumNodes(index: int128, numInclusionProofNodes: int128, transactionProofEncoding: bytes[4821]) -> bytes[4821]: constant
 
 # Events to log in web3
 ListingEvent: event({tokenType: uint256, tokenAddress: address})
@@ -119,7 +119,7 @@ MAX_TRANSFERS: constant(uint256) = 4
 def checkTransferProofAndGetTypedBounds(
     leafHash: bytes32,
     blockNum: uint256,
-    transferProof: bytes[1749]
+    transferProof: bytes[4821]
 ) -> (uint256, uint256): # typedimplicitstart, typedimplicitEnd
     parsedSum: bytes[16] = Serializer(self.serializer).decodeParsedSumBytes(transferProof)
     numProofNodes: int128 = Serializer(self.serializer).decodeNumInclusionProofNodesFromTRProof(transferProof)
@@ -157,14 +157,14 @@ def checkTransferProofAndGetTypedBounds(
     return (leftSum, rootSum - rightSum)
 
 COINID_BYTES: constant(int128) = 16
-PROOF_MAX_LENGTH: constant(uint256) = 384 # 384 = TREENODE_LEN (48) * MAX_TREE_DEPTH (8) 
+PROOF_MAX_LENGTH: constant(uint256) = 1152 # 1152 = TREENODE_LEN (48) * MAX_TREE_DEPTH (24) 
 ENCODING_LENGTH_PER_TRANSFER: constant(int128) = 165
 
 @public
 @constant
 def checkTransactionProofAndGetTypedTransfer(
         transactionEncoding: bytes[277],
-        transactionProofEncoding: bytes[1749],
+        transactionProofEncoding: bytes[4821],
         transferIndex: int128
     ) -> (
         address, # transfer.to
@@ -189,7 +189,7 @@ def checkTransactionProofAndGetTypedTransfer(
             break
         transferEncoding: bytes[68] = Serializer(self.serializer).decodeIthTransfer(i, transactionEncoding)
         
-        transferProof: bytes[1749] = Serializer(self.serializer).decodeIthTransferProofWithNumNodes(
+        transferProof: bytes[4821] = Serializer(self.serializer).decodeIthTransferProofWithNumNodes(
             i,
             numInclusionProofNodes,
             transactionProofEncoding
@@ -461,7 +461,7 @@ def respondTransactionInclusion(
         challengeID: uint256,
         transferIndex: int128,
         transactionEncoding: bytes[277],
-        transactionProofEncoding: bytes[1749],
+        transactionProofEncoding: bytes[4821],
 ):
     assert self.inclusionChallenges[challengeID].ongoing
 
@@ -545,7 +545,7 @@ def challengeSpentCoin(
     coinID: uint256,
     transferIndex: int128,
     transactionEncoding: bytes[277],
-    transactionProofEncoding: bytes[1749],
+    transactionProofEncoding: bytes[4821],
 ):
     # check we can still challenge
     exitethBlockNumberNumber: uint256 = self.exits[exitID].ethBlockNumber
@@ -643,7 +643,7 @@ def challengeInvalidHistoryWithTransaction(
     coinID: uint256,
     transferIndex: int128,
     transactionEncoding: bytes[277],
-    transactionProofEncoding: bytes[1749]
+    transactionProofEncoding: bytes[4821]
 ):
     transferTypedStart: uint256 # these will be the ones at the trIndex we are being asked about by the exit game
     transferTypedEnd: uint256
@@ -702,7 +702,7 @@ def respondInvalidHistoryTransaction(
         challengeID: uint256,
         transferIndex: int128,
         transactionEncoding: bytes[277],
-        transactionProofEncoding: bytes[1749],
+        transactionProofEncoding: bytes[4821],
 ):
     assert self.invalidHistoryChallenges[challengeID].ongoing
 

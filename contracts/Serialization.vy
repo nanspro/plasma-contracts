@@ -135,10 +135,10 @@ def decodeTypedTransferRange(
 # Note on TransferProofEncoding size:
 # It will always really be at most 
 # PARSED_SUM_LEN + LEAF_INDEX_LEN + ADDRESS_LEN + PROOF_COUNT_LEN + MAX_TREE_DEPTH * TREENODE_LEN
-# = 16 + 16 + 20 + 1 + 8 * 48 = 437
+# = 16 + 16 + 20 + 1 + 24 * 48 = 1205
 # but because of dumb type casting in vyper, it thinks it *might* 
 # be larger because we slice the TX encoding to get it.  So it has to be
-# TRANSFERPROOF_COUNT_LEN + 437 * MAX_TRANSFERS = 1 + 1744 * 4 = 1749
+# TRANSFERPROOF_COUNT_LEN + 1205 * MAX_TRANSFERS = 1 + 1205 * 4 = 4821
 
 TREENODE_LEN: constant(int128) = 48
 
