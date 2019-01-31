@@ -103,9 +103,9 @@ serializer: public(address)
 MESSAGE_PREFIX: public(bytes[28])
 
 # period (of ethereum blocks) during which an exit can be challenged
-CHALLENGE_PERIOD: constant(uint256) = 20
+CHALLENGE_PERIOD: public(uint256)
 # period (of ethereum blocks) during which an invalid history history challenge can be responded
-SPENTCOIN_CHALLENGE_PERIOD: constant(uint256) = CHALLENGE_PERIOD / 2
+SPENTCOIN_CHALLENGE_PERIOD: public(uint256)
 # minimum number of ethereum blocks between new plasma blocks
 PLASMA_BLOCK_INTERVAL: constant(uint256) = 0
 
@@ -242,6 +242,10 @@ def checkTransactionProofAndGetTypedTransfer(
 @public
 def setup(_operator: address, ethDecimalOffset: uint256, serializerAddr: address): # last val should be properly hardcoded as a constant eventually
     assert self.isSetup == False
+    self.CHALLENGE_PERIOD = 20
+    self.SPENTCOIN_CHALLENGE_PERIOD =  self.CHALLENGE_PERIOD / 2
+
+    
     self.operator = _operator
     self.nextPlasmaBlockNumber = 1 # starts at 1 so deposits before the first block have a precedingPlasmaBlock of 0 since it can't be negative (it's a uint)
     self.exitNonce = 0
@@ -390,7 +394,7 @@ def finalizeExit(exitID: uint256, exitableEnd: uint256):
     tokenType: uint256 = self.exits[exitID].tokenType
 
     assert challengeCount == 0
-    assert block.number > exitETHBlockNumber + CHALLENGE_PERIOD
+    assert block.number > exitETHBlockNumber + self.CHALLENGE_PERIOD
 
     self.checkRangeExitable(tokenType, exitUntypedStart, exitUntypedEnd, exitableEnd)
     self.removeFromExitable(tokenType, exitUntypedStart, exitUntypedEnd, exitableEnd)
@@ -441,7 +445,7 @@ def challengeInclusion(exitID: uint256):
 
     # check we can still challenge
     exitethBlockNumber: uint256 = self.exits[exitID].ethBlockNumber
-    assert block.number < exitethBlockNumber + CHALLENGE_PERIOD
+    assert block.number < exitethBlockNumber + self.CHALLENGE_PERIOD
 
     # store challenge
     challengeID: uint256 = self.challengeNonce
@@ -548,7 +552,7 @@ def challengeSpentCoin(
 ):
     # check we can still challenge
     exitethBlockNumberNumber: uint256 = self.exits[exitID].ethBlockNumber
-    # assert block.number < exitethBlockNumberNumber + SPENTCOIN_CHALLENGE_PERIOD
+    assert block.number < exitethBlockNumberNumber + self.SPENTCOIN_CHALLENGE_PERIOD
 
     transferTypedStart: uint256 # these will be the ones at the trIndex we are being asked about by the exit game
     transferTypedEnd: uint256
@@ -600,7 +604,7 @@ def challengeInvalidHistory(
 ):
     # check we can still challenge
     exitethBlockNumberNumber: uint256 = self.exits[exitID].ethBlockNumber
-    assert block.number < exitethBlockNumberNumber + CHALLENGE_PERIOD
+    assert block.number < exitethBlockNumberNumber + self.CHALLENGE_PERIOD
 
     # check the coinspend came before the exit block
     assert blockNumber < self.exits[exitID].plasmaBlockNumber
