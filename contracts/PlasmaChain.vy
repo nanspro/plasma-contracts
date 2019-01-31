@@ -63,7 +63,7 @@ ListingEvent: event({tokenType: uint256, tokenAddress: address})
 DepositEvent: event({plasmaBlockNumber: indexed(uint256), depositer: indexed(address), tokenType: uint256, untypedStart: uint256, untypedEnd: uint256})
 SubmitBlockEvent: event({blockNumber: indexed(uint256), submittedHash: indexed(bytes32)})
 BeginExitEvent: event({tokenType: indexed(uint256), untypedStart: indexed(uint256), untypedEnd: indexed(uint256), exiter: address, exitID: uint256})
-FinalizeExitEvent: event({tokenType: indexed(uint256), untypedStart: indexed(uint256), untypedEnd: indexed(uint256), exitID: uint256})
+FinalizeExitEvent: event({tokenType: indexed(uint256), untypedStart: indexed(uint256), untypedEnd: indexed(uint256), exitID: uint256, exiter: address})
 ChallengeEvent: event({exitID: uint256, challengeID: indexed(uint256)})
 
 # operator related publics
@@ -332,8 +332,6 @@ def depositERC20(tokenAddress: address, depositSize: uint256):
     depositInPlasmaCoins: uint256 = depositSize * tokenMultiplier
     self.processDeposit(depositer, depositInPlasmaCoins, tokenType)
 
-#add process above
-
 @public
 def beginExit(tokenType: uint256, blockNumber: uint256, untypedStart: uint256, untypedEnd: uint256) -> uint256:
     assert blockNumber < self.nextPlasmaBlockNumber
@@ -350,10 +348,11 @@ def beginExit(tokenType: uint256, blockNumber: uint256, untypedStart: uint256, u
     self.exits[exitID].challengeCount = 0
 
     self.exitNonce += 1
-    return exitID
 
     #log the event
     log.BeginExitEvent(tokenType, untypedStart, untypedEnd, exiter, exitID)
+    
+    return exitID
 
 @public
 @constant
@@ -408,7 +407,7 @@ def finalizeExit(exitID: uint256, exitableEnd: uint256):
         assert passed
 
     # log the event    
-    log.FinalizeExitEvent(tokenType, exitUntypedStart, exitUntypedEnd, exitID)
+    log.FinalizeExitEvent(tokenType, exitUntypedStart, exitUntypedEnd, exitID, exiter)
 
 @public
 def challengeBeforeDeposit(
