@@ -275,7 +275,7 @@ def submitBlock(newBlockHash: bytes32):
 
 @public
 def listToken(tokenAddress: address, denomination: uint256):
-    assert msg.sender == self.operator
+    assert self.listed[tokenAddress] == 0
     
     tokenType: uint256 = self.listingNonce
     self.listingNonce += 1

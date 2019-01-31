@@ -65,7 +65,7 @@ describe('ERC20 Token Support', () => {
       expect(tokenBytecode).to.exist
       expect(token).to.exist
     })
-    it('should allow the operator to list a new token', async () => {
+    it('should allow anyone to list a new token', async () => {
       await plasma.methods.listToken(token._address, benCoinDenomination).send()
 
       const listingAddress = await plasma.methods.listings__contractAddress(listingNonce).call()
