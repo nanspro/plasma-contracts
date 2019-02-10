@@ -39,6 +39,7 @@
   "homepage": "https://github.com/plasma-group/plasma-contracts#readme",
   "dependencies": {
     "bn.js": "^4.11.8",
+    "dotenv": "^6.2.0",
     "ganache-cli": "^6.2.5",
     "plasma-utils": "^0.0.2",
     "web3": "1.0.0-beta.37"
