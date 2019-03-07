@@ -16,9 +16,19 @@
 def getLeafHash(transactionEncoding: bytes[277]) -> bytes32:
     return sha3(transactionEncoding)
 
-${decode(BlockNumber,0,uint256)}
+# decode(BlockNumber,0,uint256)
+@public
+@constant
+def decodeBlockNumber(transactionEncoding: bytes[277]) -> uint256:
+    num: bytes[4] = slice(transactionEncoding, start = 0, len = 4)
+    return convert(num, uint256)
 
-${decode(NumTransfers,1,uint256)}
+# decode(NumTransfers,1,uint256)
+@public
+@constant
+def decodeNumTransfers(transactionEncoding: bytes[277]) -> uint256:
+    num: bytes[1] = slice(transactionEncoding, start = 4, len = 1)
+    return convert(num, uint256)
 
 FIRST_TR_START: constant(int128) = 5
 TR_LEN: constant(int128) = 68
@@ -42,13 +52,32 @@ def bytes20ToAddress(addr: bytes[20]) -> address:
     padded: bytes[52] = concat(EMPTY_BYTES32, addr)
     return convert(convert(slice(padded, start=20, len=32), bytes32), address)
 
-${decode(Sender,2,address,1)}
+# decode(Sender,2,address,1)
+@public
+@constant
+def decodeSender(transferEncoding: bytes[68]) -> address:
+    num: bytes[20] = slice(transferEncoding, start = 0, len = 20)
+    return self.bytes20ToAddress(num)
 
-${decode(Recipient,3,address,1)}
+# decode(Recipient,3,address,1)
+@public
+@constant
+def decodeRecipient(transferEncoding: bytes[68]) -> address:
+    num: bytes[20] = slice(transferEncoding, start = 20, len = 20)
+    return self.bytes20ToAddress(num)
 
-${decode(TokenTypeBytes,4,bytes[4],1)}
-
-${decode(TokenType,4,uint256,1)}
+# decode(TokenTypeBytes,4,bytes[4],1)
+@public
+@constant
+def decodeTokenTypeBytes(transferEncoding: bytes[68]) -> bytes[4]:
+    num: bytes[4] = slice(transferEncoding, start = 40, len = 4)
+    return num
+# decode(TokenType,4,uint256,1)
+@public
+@constant
+def decodeTokenType(transferEncoding: bytes[68]) -> uint256:
+    num: bytes[4] = self.decodeTokenTypeBytes(transferEncoding)
+    return convert(num, uint256)
 
 @public
 @constant
@@ -88,9 +117,18 @@ def decodeTypedTransferRange(
 
 TREENODE_LEN: constant(int128) = 48
 
-${decode(ParsedSumBytes,5,bytes[16],2)}
-
-${decode(LeafIndex,6,int128,2)}
+# decode(ParsedSumBytes,5,bytes[16],2)
+@public
+@constant
+def decodeParsedSumBytes(transferProofEncoding: bytes[1749]) -> bytes[16]:
+    num: bytes[16] = slice(transferProofEncoding, start = 0, len = 16)
+    return num
+# decode(LeafIndex,6,int128,2)
+@public
+@constant
+def decodeLeafIndex(transferProofEncoding: bytes[1749]) -> int128:
+    num: bytes[16] = slice(transferProofEncoding, start = 16, len = 16)
+    return convert(num, int128)
 
 SIG_START:constant(int128) = 32
 SIGV_OFFSET: constant(int128) = 0
@@ -127,7 +165,12 @@ def decodeSignature(
         convert(sigS, uint256)
     )
 
-${decode(NumInclusionProofNodesFromTRProof,7,int128,2)}
+# decode(NumInclusionProofNodesFromTRProof,7,int128,2)
+@public
+@constant
+def decodeNumInclusionProofNodesFromTRProof(transferProofEncoding: bytes[1749]) -> int128:
+    num: bytes[1] = slice(transferProofEncoding, start = 97, len = 1)
+    return convert(num, int128)
 
 INCLUSIONPROOF_START: constant(int128) = 98
 @public
@@ -156,7 +199,12 @@ def decodeNumInclusionProofNodesFromTXProof(transactionProof: bytes[1749]) -> in
     return self.decodeNumInclusionProofNodesFromTRProof(firstTransferProof)
 
 
-${decode(NumTransactionProofs,8,int128,2)}
+# decode(NumTransactionProofs,8,int128,2)
+@public
+@constant
+def decodeNumTransactionProofs(transferProofEncoding: bytes[1749]) -> int128:
+    num: bytes[1] = slice(transferProofEncoding, start = 0, len = 1)
+    return convert(num, int128)
 
 @public
 @constant
